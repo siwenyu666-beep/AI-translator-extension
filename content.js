@@ -303,36 +303,81 @@ function isInTooltip(node) {
 }
 
 // ── 事件监听 ──
+// ── 触发模式与鼠标事件 ──
+let triggerMode = 'auto';
 let debounceTimer = null;
 
+// ── 异步加载触发模式配置 ──
+(async function initTriggerMode() {
+  try {
+    const stored = await chrome.storage.local.get({ triggerMode: 'auto' });
+    triggerMode = stored.triggerMode || 'auto';
+  } catch { /* storage 不可用时保持默认值 */ }
+})();
+
+// ── 监听配置变更，实时切换触发模式 ──
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.triggerMode) {
+    triggerMode = changes.triggerMode.newValue || 'auto';
+  }
+});
+
+// ── 记录右键点击位置（作为弹窗定位 fallback）──
+let lastContextMenuPos = { x: 0, y: 0 };
+
+document.addEventListener('contextmenu', (e) => {
+  lastContextMenuPos.x = e.clientX + window.scrollX;
+  lastContextMenuPos.y = e.clientY + window.scrollY;
+});
+
+// ── mouseup 自动触发（仅在 auto 模式下生效）──
 document.addEventListener('mouseup', (e) => {
   if (isInTooltip(e.target)) return;
+  if (triggerMode !== 'auto') return;
 
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
-    handleSelection(e);
+    const sel = window.getSelection();
+    const text = sel.toString().trim();
+    if (!text || text.length < 2) {
+      if (!isLoading) hideTooltip();
+      return;
+    }
+    if (text === currentText && tooltip && tooltip.classList.contains('ds-visible')) return;
+    triggerExplanation(text);
   }, 150);
 });
 
-function handleSelection(e) {
-  const sel = window.getSelection();
-  const text = sel.toString().trim();
-
-  if (!text || text.length < 2) {
-    if (!isLoading) hideTooltip();
-    return;
+// ── 接收来自右键菜单的触发消息 ──
+chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === 'TRIGGER_EXPLAIN' && message.text) {
+    triggerExplanation(message.text);
   }
+});
+
+// ── 由右键菜单触发的解释流程 ──
+function triggerExplanation(text) {
+  if (!text || text.length < 2) return;
 
   if (text === currentText && tooltip && tooltip.classList.contains('ds-visible')) return;
 
   currentText = text;
 
-  const coords = getSelectionDocCoords();
-  if (!coords) return;
+  // 优先用当前 selection 坐标，获取不到则用右键点击位置
+  let coords = getSelectionDocCoords();
+  if (!coords) {
+    coords = {
+      left: lastContextMenuPos.x,
+      bottom: lastContextMenuPos.y,
+      right: lastContextMenuPos.x,
+      top: lastContextMenuPos.y,
+      viewportLeft: lastContextMenuPos.x - window.scrollX,
+      viewportBottom: lastContextMenuPos.y - window.scrollY
+    };
+  }
 
   setLoading(text);
   positionTooltip(coords);
-
   requestExplanation(text);
 }
 
