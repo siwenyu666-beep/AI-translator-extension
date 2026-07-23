@@ -1,0 +1,193 @@
+/* ========== DeepSeek 智能解释 - 弹窗样式 ========== */
+
+#deepseek-explain-tooltip {
+  position: absolute;
+  z-index: 2147483647;
+  width: 340px;
+  max-width: calc(100vw - 24px);
+  background: #ffffff;
+  border: 1px solid #e8e8ed;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.06);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #1e1e1e;
+  overflow: hidden;
+  display: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+#deepseek-explain-tooltip.ds-visible {
+  display: block;
+  opacity: 1;
+}
+
+#deepseek-explain-tooltip.ds-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── 头部 ── */
+.ds-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px 0;
+}
+
+.ds-brand {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.ds-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  font-size: 16px;
+  color: #c0c0c8;
+  cursor: pointer;
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+  margin-top: -2px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.ds-close:hover {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+/* ── 选中原文 ── */
+.ds-quote {
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #64748b;
+  font-style: italic;
+  line-height: 1.5;
+  background: #f8fafc;
+  border-left: 3px solid #2563eb;
+  border-radius: 0 6px 6px 0;
+  word-break: break-word;
+  white-space: normal;
+}
+
+/* ── 正文 ── */
+.ds-body {
+  padding: 12px 16px 8px;
+  font-size: 13px;
+  color: #334155;
+  word-break: break-word;
+  min-height: 28px;
+  white-space: pre-line;
+}
+
+/* ── 操作按钮 ── */
+.ds-actions {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 16px 10px;
+}
+
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  outline: none;
+}
+
+.ds-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+.ds-btn:active {
+  background: #e2e8f0;
+}
+
+.ds-btn-icon {
+  display: flex;
+  align-items: center;
+}
+
+.ds-btn-label {
+  font-weight: 500;
+}
+
+/* ── 加载动画 ── */
+.ds-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.ds-spinner {
+  display: inline-block;
+  width: 15px;
+  height: 15px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #2563eb;
+  border-radius: 50%;
+  animation: ds-spin 0.7s linear infinite;
+}
+
+@keyframes ds-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── 错误 ── */
+.ds-error {
+  color: #dc2626;
+  font-size: 12px;
+}
+
+/* ── 底栏 ── */
+.ds-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px 8px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.ds-model-tag {
+  font-size: 10px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+}
+
+.ds-powered {
+  font-size: 10px;
+  color: #cbd5e1;
+}

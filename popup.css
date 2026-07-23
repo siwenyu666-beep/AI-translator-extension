@@ -1,0 +1,195 @@
+/* ========== DeepSeek 智能解释 - Popup 样式 ========== */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 360px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei", "Helvetica Neue", sans-serif;
+  font-size: 14px;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+
+.container {
+  padding: 20px;
+}
+
+/* ── Logo ── */
+.logo {
+  margin-bottom: 20px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #2563eb;
+}
+
+.logo-text {
+  font-size: 17px;
+  font-weight: 700;
+  color: #333;
+}
+
+/* ── Section ── */
+.section {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* ── 输入框 ── */
+input[type="password"],
+input[type="text"] {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  outline: none;
+  transition: border-color 0.2s;
+  background: #fff;
+}
+
+input:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* ── 下拉框 ── */
+select {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1.5px solid #ddd;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.2s;
+}
+
+select:focus {
+  border-color: #2563eb;
+}
+
+/* ── 提示 ── */
+.hint {
+  margin-top: 4px;
+  font-size: 11px;
+}
+
+.hint a {
+  color: #2563eb;
+  text-decoration: none;
+}
+
+.hint a:hover {
+  text-decoration: underline;
+}
+
+/* ── 开关 ── */
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.toggle-row .label {
+  margin-bottom: 0;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  inset: 0;
+  background-color: #ccc;
+  transition: 0.25s;
+  border-radius: 24px;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: 0.25s;
+  border-radius: 50%;
+}
+
+input:checked + .slider {
+  background-color: #2563eb;
+}
+
+input:checked + .slider::before {
+  transform: translateX(20px);
+}
+
+/* ── 按钮 ── */
+.actions {
+  margin-top: 18px;
+}
+
+.btn-primary {
+  width: 100%;
+  padding: 11px 0;
+  border: none;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+/* ── 状态 ── */
+.status {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 12px;
+  min-height: 18px;
+  transition: opacity 0.3s;
+}
+
+.status.success {
+  color: #27ae60;
+}
+
+.status.error {
+  color: #e74c3c;
+}

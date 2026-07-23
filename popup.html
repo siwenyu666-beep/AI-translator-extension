@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DeepSeek 智能解释</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="logo">
+      <span class="logo-text">DeepSeek 智能解释</span>
+    </div>
+
+    <div class="section">
+      <label class="label" for="api-key">DeepSeek API Key</label>
+      <input
+        type="password"
+        id="api-key"
+        placeholder="粘贴你的 DeepSeek API Key…"
+        autocomplete="off"
+      />
+      <div class="hint">
+        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">
+          前往 DeepSeek 开放平台获取 Key →
+        </a>
+      </div>
+    </div>
+
+    <div class="section">
+      <label class="label" for="model">模型</label>
+      <select id="model">
+        <option value="deepseek-chat">DeepSeek-V3（推荐 · 快速准确）</option>
+        <option value="deepseek-reasoner">DeepSeek-R1（深度推理）</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <label class="label" for="language">解释语言偏好</label>
+      <select id="language">
+        <option value="auto">自动检测（推荐）</option>
+        <option value="zh">始终用中文</option>
+        <option value="en">始终用英文</option>
+      </select>
+    </div>
+
+    <div class="section toggle-row">
+      <label class="label" for="enabled">启用扩展</label>
+      <label class="switch">
+        <input type="checkbox" id="enabled" checked />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="section toggle-row">
+      <label class="label" for="use-context">结合网页上下文</label>
+      <label class="switch">
+        <input type="checkbox" id="use-context" checked />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="save-btn" class="btn-primary">💾 保存设置</button>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

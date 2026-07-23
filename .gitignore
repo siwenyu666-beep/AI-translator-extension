@@ -1,0 +1,17 @@
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Reasonix
+.reasonix/
