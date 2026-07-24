@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek 智能解释",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "选中文本，DeepSeek 立刻为你解释——英文给英文释义，中文给中文解读，浮窗即显即消。",
   "permissions": ["storage", "downloads", "contextMenus"],
   "host_permissions": [
