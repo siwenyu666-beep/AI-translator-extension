@@ -196,16 +196,16 @@
 }
 
 .ds-download-status.ds-status-visible {
-  color: rgba(100, 116, 139, 0.7);
+  color: #64748b;
   opacity: 1;
 }
 
 .ds-download-status.ds-status-success {
-  color: rgba(22, 163, 74, 0.7);
+  color: #16a34a;
 }
 
 .ds-download-status.ds-status-error {
-  color: rgba(220, 38, 38, 0.7);
+  color: #dc2626;
 }
 
 .ds-powered {

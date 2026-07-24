@@ -107,6 +107,8 @@ function hideTooltip() {
   currentExplanation = null;
   isLoading = false;
   pendingRequest++;
+  const st = tooltip.querySelector('.ds-download-status');
+  if (st) { st.className = 'ds-download-status'; st.textContent = ''; }
 }
 
 function scheduleHide() {
@@ -255,11 +257,6 @@ async function handleDownload(e) {
     statusEl.textContent = `下载失败：${err.message}`;
     statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
   }
-
-  setTimeout(() => {
-    statusEl.className = 'ds-download-status';
-    statusEl.textContent = '';
-  }, 3000);
 }
 
 // ── 提取网页上下文 ──
