@@ -9,7 +9,6 @@ const $triggerMode = document.getElementById('trigger-mode');
 const $thinkingEnabled = document.getElementById('thinking-enabled');
 const $reasoningEffort = document.getElementById('reasoning-effort');
 const $effortSection = document.getElementById('effort-section');
-const $saveAs = document.getElementById('save-as');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -23,7 +22,6 @@ const $status = document.getElementById('status');
     usePageContext: true,
     thinkingEnabled: false,
     reasoningEffort: 'high',
-    saveAs: false,
     triggerMode: 'auto'
   });
 
@@ -35,7 +33,6 @@ const $status = document.getElementById('status');
   $thinkingEnabled.checked = config.thinkingEnabled === true;
   $reasoningEffort.value = config.reasoningEffort || 'high';
   $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
-  $saveAs.checked = config.saveAs === true;
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
@@ -58,7 +55,6 @@ $saveBtn.addEventListener('click', async () => {
     usePageContext: $useContext.checked,
     thinkingEnabled: $thinkingEnabled.checked,
     reasoningEffort: $reasoningEffort.value,
-    saveAs: $saveAs.checked,
     triggerMode: $triggerMode.value
   };
 
@@ -98,10 +94,6 @@ $language.addEventListener('change', () => {
   chrome.storage.local.set({ language: $language.value });
 });
 
-// ── 手动选择下载位置 ──
-$saveAs.addEventListener('change', () => {
-  chrome.storage.local.set({ saveAs: $saveAs.checked });
-});
 
 function showStatus(msg, type) {
   $status.textContent = msg;

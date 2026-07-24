@@ -200,10 +200,6 @@
   opacity: 1;
 }
 
-.ds-download-status.ds-status-success {
-  color: #16a34a;
-}
-
 .ds-download-status.ds-status-error {
   color: #dc2626;
 }
