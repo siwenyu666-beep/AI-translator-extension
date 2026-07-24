@@ -6,6 +6,9 @@ const $language = document.getElementById('language');
 const $enabled = document.getElementById('enabled');
 const $useContext = document.getElementById('use-context');
 const $triggerMode = document.getElementById('trigger-mode');
+const $thinkingEnabled = document.getElementById('thinking-enabled');
+const $reasoningEffort = document.getElementById('reasoning-effort');
+const $effortSection = document.getElementById('effort-section');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -17,6 +20,8 @@ const $status = document.getElementById('status');
     enabled: true,
     language: 'auto',
     usePageContext: true,
+    thinkingEnabled: false,
+    reasoningEffort: 'high',
     triggerMode: 'auto'
   });
 
@@ -25,6 +30,9 @@ const $status = document.getElementById('status');
   $language.value = config.language;
   $enabled.checked = config.enabled !== false;
   $useContext.checked = config.usePageContext !== false;
+  $thinkingEnabled.checked = config.thinkingEnabled === true;
+  $reasoningEffort.value = config.reasoningEffort || 'high';
+  $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
@@ -43,6 +51,8 @@ $saveBtn.addEventListener('click', async () => {
     language: $language.value,
     enabled: $enabled.checked,
     usePageContext: $useContext.checked,
+    thinkingEnabled: $thinkingEnabled.checked,
+    reasoningEffort: $reasoningEffort.value,
     triggerMode: $triggerMode.value
   };
 
@@ -61,6 +71,16 @@ $enabled.addEventListener('change', () => {
 
 $useContext.addEventListener('change', () => {
   chrome.storage.local.set({ usePageContext: $useContext.checked });
+});
+
+// ── 思考模式开关 → 联动强度选择显隐 ──
+$thinkingEnabled.addEventListener('change', () => {
+  $effortSection.style.display = $thinkingEnabled.checked ? '' : 'none';
+  chrome.storage.local.set({ thinkingEnabled: $thinkingEnabled.checked });
+});
+
+$reasoningEffort.addEventListener('change', () => {
+  chrome.storage.local.set({ reasoningEffort: $reasoningEffort.value });
 });
 
 function showStatus(msg, type) {

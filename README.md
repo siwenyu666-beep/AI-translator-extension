@@ -11,28 +11,38 @@
 - **一键复制**：点击复制按钮将解释写入剪贴板
 - **一键下载**：将解释保存为 TXT 文件到本地
 - **多模型**：支持 DeepSeek-V4-Flash 和 DeepSeek-V4-Pro
+- **深度思考**：可选开启思考模式，支持高/最高两档思考强度
 
 ## 安装
 
-1. 下载本仓库全部文件到一个文件夹
-2. 打开 Edge 浏览器，地址栏输入 `edge://extensions`
-3. 开启左侧「开发人员模式」
-4. 点击「加载解压缩的扩展」，选择本文件夹
-5. 点击工具栏扩展图标，填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
-6. 去任意网页选中文字，即可看到解释
+### 方式一：Download ZIP（推荐）
+
+1. 点击仓库右上角绿色 **"<> Code"** → **"Download ZIP"**
+2. 解压到任意文件夹
+3. 打开 Edge，地址栏输入 `edge://extensions`
+4. 开启左侧「开发人员模式」
+5. 点击「加载解压缩的扩展」，选择解压后的文件夹
+6. 点击工具栏扩展图标，填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
+
+### 方式二：git clone
+
+```bash
+git clone https://github.com/zdjmrq/siwenyudecangku.git
+```
+
+克隆后可以删除 `.git` 文件夹（不影响扩展运行），保持文件夹干净。其余步骤同方式一的 3~6。
 
 ## 使用技巧
 
 - 在设置面板中切换「触发方式」：「选中自动搜索」更快捷，「右键菜单搜索」避免误触发，随时切换无需刷新页面
 - 将 Edge 默认下载目录设为你的笔记文件夹，下载的解释文件会自动归档
-- 关闭「结合网页上下文」开关后，解释更通用；打开后更精准
+- 开启「深度思考模式」（建议搭配 V4-Pro 模型使用），可选高/最高两档思考强度
 - 按 `Esc` 可以快速关闭弹窗
 
 ## 技术栈
 
 - Manifest V3
-- Service Worker（API 代理 + 下载）
-- Content Script（划词检测 + 浮动卡片）
+- Content Script（划词检测 + 浮动卡片 + 直接 API 调用）
 - DeepSeek Chat Completions API
 
 ## 许可证

@@ -273,7 +273,9 @@ async function getConfig() {
     model: 'deepseek-v4-flash',
     enabled: true,
     language: 'auto',
-    usePageContext: true
+    usePageContext: true,
+    thinkingEnabled: false,
+    reasoningEffort: 'high'
   };
   return await chrome.storage.local.get(defaults);
 }
@@ -312,27 +314,34 @@ ${text}
 }
 
 // ── 调用 DeepSeek API（直接 fetch，不经过 Service Worker）──
-async function callDeepSeek(apiKey, model, prompt) {
+async function callDeepSeek(apiKey, model, prompt, thinkingEnabled, reasoningEffort) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
 
   try {
+    const body = {
+      model: model,
+      messages: [
+        { role: 'system', content: '你是一个知识渊博、擅于解释的助手。给出简洁清晰的解释，不要重复开场白，直接解释。' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 400,
+      stream: false
+    };
+
+    if (thinkingEnabled) {
+      body.thinking = { type: 'enabled' };
+      body.reasoning_effort = reasoningEffort || 'high';
+    }
+
     const res = await fetch('https://api.deepseek.com/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          { role: 'system', content: '你是一个知识渊博、擅于解释的助手。给出简洁清晰的解释，不要重复开场白，直接解释。' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.3,
-        max_tokens: 400,
-        stream: false
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal
     });
 
@@ -383,7 +392,7 @@ async function requestExplanation(text) {
     }
 
     const prompt = buildPrompt(text, config.language, context);
-    const explanation = await callDeepSeek(config.apiKey, config.model, prompt);
+    const explanation = await callDeepSeek(config.apiKey, config.model, prompt, config.thinkingEnabled, config.reasoningEffort);
 
     if (reqId !== pendingRequest) return;
 
