@@ -146,7 +146,7 @@ function setExplanation(text, explanation, model, cached) {
   const el = getTooltip();
   el.querySelector('.ds-quote').textContent = truncate(text, 80);
   el.querySelector('.ds-body').textContent = cleaned;
-  const tag = model ? model.replace('deepseek-', '') : '';
+  const tag = model ? model.replace('deepseek-v4-', '') : '';
   el.querySelector('.ds-model-tag').textContent = cached ? (tag + ' · 缓存') : tag;
   el.querySelector('.ds-actions').style.display = 'flex';
 }

@@ -13,7 +13,7 @@ const $status = document.getElementById('status');
 (async () => {
   const config = await chrome.storage.local.get({
     apiKey: '',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     enabled: true,
     language: 'auto',
     usePageContext: true,

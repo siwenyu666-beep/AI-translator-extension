@@ -64,7 +64,7 @@ async function handleExplain(text, context, pageUrl) {
 async function getConfig() {
   const defaults = {
     apiKey: '',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     enabled: true,
     language: 'auto',
     usePageContext: true,
