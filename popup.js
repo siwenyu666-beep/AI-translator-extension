@@ -5,6 +5,7 @@ const $model = document.getElementById('model');
 const $language = document.getElementById('language');
 const $enabled = document.getElementById('enabled');
 const $useContext = document.getElementById('use-context');
+const $triggerMode = document.getElementById('trigger-mode');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -15,7 +16,8 @@ const $status = document.getElementById('status');
     model: 'deepseek-chat',
     enabled: true,
     language: 'auto',
-    usePageContext: true
+    usePageContext: true,
+    triggerMode: 'auto'
   });
 
   $apiKey.value = config.apiKey || '';
@@ -23,6 +25,7 @@ const $status = document.getElementById('status');
   $language.value = config.language;
   $enabled.checked = config.enabled !== false;
   $useContext.checked = config.usePageContext !== false;
+  $triggerMode.value = config.triggerMode || 'auto';
 })();
 
 // ── 保存配置 ──
@@ -39,7 +42,8 @@ $saveBtn.addEventListener('click', async () => {
     model: $model.value,
     language: $language.value,
     enabled: $enabled.checked,
-    usePageContext: $useContext.checked
+    usePageContext: $useContext.checked,
+    triggerMode: $triggerMode.value
   };
 
   try {
