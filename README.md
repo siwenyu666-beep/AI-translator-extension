@@ -26,7 +26,7 @@
 git clone https://github.com/zdjmrq/siwenyudecangku.git
 ```
 
-克隆后可以删除 .git 文件夹与 README.md 文件（不影响扩展运行），保持文件夹干净。
+克隆后可以删除 【.git】 文件夹与 【README.md】 文件（不影响扩展运行），保持文件夹干净。
 
 1. 打开 Edge，地址栏输入 `edge://extensions`（或在拓展插件图标中点击“管理拓展”）
 2. 开启左侧「开发人员模式」
@@ -39,7 +39,7 @@ git clone https://github.com/zdjmrq/siwenyudecangku.git
 - 在设置面板中切换「触发方式」：「选中自动搜索」更快捷，「右键菜单搜索」避免误触发，随时切换无需刷新页面
 - 将 Edge 默认下载目录设为你的笔记文件夹，下载的解释文件会自动归档
 - 开启「深度思考模式」（建议搭配 V4-Pro 模型使用），可选高/最高两档思考强度
-- 按`Esc`可以快速关闭弹窗
+- 按【Esc】可以快速关闭弹窗
 
 ## 技术栈
 
