@@ -11,6 +11,7 @@ const $reasoningEffort = document.getElementById('reasoning-effort');
 const $effortSection = document.getElementById('effort-section');
 const $downloadPath = document.getElementById('download-path');
 const $pathPreview = document.getElementById('path-preview');
+const $copyPathBtn = document.getElementById('copy-path-btn');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -115,6 +116,20 @@ $downloadPath.addEventListener('input', updatePathPreview);
 
 $downloadPath.addEventListener('change', () => {
   chrome.storage.local.set({ downloadPath: normalizePath($downloadPath.value) });
+});
+
+// ── 复制下载路径 ──
+$copyPathBtn.addEventListener('click', async () => {
+  const path = normalizePath($downloadPath.value);
+  const full = `默认下载目录\\${path.replace(/\//g, '\\')}DeepSeek解释_时间.txt`;
+  try {
+    await navigator.clipboard.writeText(full);
+    $copyPathBtn.textContent = '✅ 已复制';
+    setTimeout(() => { $copyPathBtn.textContent = '📋 复制路径'; }, 1500);
+  } catch {
+    $copyPathBtn.textContent = '❌ 失败';
+    setTimeout(() => { $copyPathBtn.textContent = '📋 复制路径'; }, 1500);
+  }
 });
 
 function showStatus(msg, type) {

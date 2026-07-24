@@ -110,7 +110,7 @@ select:focus {
 
 /* ── 下载位置提示 ── */
 .hint-download {
-  margin-bottom: 0;
+  margin-top: 6px;
   padding: 8px 10px;
   font-size: 11px;
   color: #94a3b8;
@@ -118,6 +118,27 @@ select:focus {
   border-radius: 6px;
   line-height: 1.6;
   border: 1px dashed #e2e8f0;
+}
+
+.btn-copy-path {
+  font-size: 10px;
+  color: #2563eb;
+  background: none;
+  border: 1px solid #2563eb;
+  border-radius: 3px;
+  padding: 1px 5px;
+  cursor: pointer;
+  margin-left: 6px;
+  vertical-align: middle;
+  transition: background 0.15s;
+}
+
+.btn-copy-path:hover {
+  background: #eff6ff;
+}
+
+.hint-sub {
+  color: #c0c0c8;
 }
 
 /* ── 开关 ── */

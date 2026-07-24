@@ -10,7 +10,7 @@
   <div class="container">
     <div class="logo">
       <span class="logo-text">DeepSeek 智能解释</span>
-      <span class="version-tag">v2.1.1</span>
+      <span class="version-tag">v2.1.2</span>
     </div>
 
     <div class="section">
@@ -86,10 +86,15 @@
     </div>
 
     <div class="section">
-      <label class="label" for="download-path">下载子目录</label>
+      <label class="label" for="download-path">
+        下载路径
+        <button id="copy-path-btn" class="btn-copy-path" title="复制完整下载路径">📋 复制路径</button>
+      </label>
       <input type="text" id="download-path" placeholder="笔记/" />
       <div class="hint-download">
-        📥 完整路径：浏览器默认下载目录\<span id="path-preview">笔记/</span>DeepSeek解释_时间.txt
+        📥 路径相对于浏览器默认下载目录<br>
+        <span id="path-preview">笔记/</span>DeepSeek解释_时间.txt
+        <br><span class="hint-sub">（Edge 设置 → 下载 → 位置 可改默认目录）</span>
       </div>
     </div>
 
