@@ -211,6 +211,7 @@ async function handleDownload(e) {
     const text = [
       `DeepSeek 智能解释`,
       `生成时间: ${now.toLocaleString('zh-CN')}`,
+      `来源页面: ${location.href}`,
       ``,
       `── 选中原文 ──`,
       currentText,
