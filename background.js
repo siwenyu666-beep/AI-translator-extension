@@ -22,14 +22,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   }
 });
 
-chrome.runtime.onMessage.addListener((message) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'DOWNLOAD') {
-    handleDownload(message.text, message.explanation);
+    handleDownload(message.text, message.explanation).then(sendResponse);
+    return true;
   }
 });
 
 // ── 下载解释到本地 ──
-function handleDownload(selectedText, explanation) {
+async function handleDownload(selectedText, explanation) {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
@@ -47,7 +48,6 @@ function handleDownload(selectedText, explanation) {
     ``,
   ].join('\n');
 
-  // Service Worker 没有 FileReader，用 TextEncoder + base64
   const encoder = new TextEncoder();
   const bytes = encoder.encode(content);
   let binary = '';
@@ -56,9 +56,14 @@ function handleDownload(selectedText, explanation) {
   }
   const dataUrl = 'data:text/plain;charset=utf-8;base64,' + btoa(binary);
 
-  chrome.downloads.download({
-    url: dataUrl,
-    filename: filename,
-    saveAs: false
-  });
+  try {
+    await chrome.downloads.download({
+      url: dataUrl,
+      filename: filename,
+      saveAs: false
+    });
+    return { success: true, filename };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 }

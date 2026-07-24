@@ -8,6 +8,8 @@ let isLoading = false;
 let hideTimer = null;
 let pendingRequest = 0;
 
+const BLOCK_TAGS = new Set(['P', 'DIV', 'LI', 'TD', 'TH', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION', 'DD', 'DT', 'ASIDE', 'MAIN', 'SUMMARY']);
+
 // ── 创建弹窗 DOM（只创建一次） ──
 function getTooltip() {
   if (!tooltip) {
@@ -36,6 +38,7 @@ function getTooltip() {
       </div>
       <div class="ds-footer">
         <span class="ds-model-tag"></span>
+        <span class="ds-download-status"></span>
         <span class="ds-powered">Powered by DeepSeek</span>
       </div>
     `;
@@ -191,24 +194,37 @@ async function handleCopy(e) {
 }
 
 // ── 下载解释 ──
-function handleDownload(e) {
+async function handleDownload(e) {
   e.stopPropagation();
   if (!currentText || !currentExplanation) return;
 
-  chrome.runtime.sendMessage({
-    type: 'DOWNLOAD',
-    text: currentText,
-    explanation: currentExplanation
-  });
+  const statusEl = getTooltip().querySelector('.ds-download-status');
+  statusEl.textContent = '下载中…';
+  statusEl.className = 'ds-download-status ds-status-visible';
 
-  const btn = tooltip.querySelector('.ds-btn-download .ds-btn-label');
-  const original = btn.textContent;
-  btn.textContent = '已下载';
-  btn.style.color = '#16a34a';
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'DOWNLOAD',
+      text: currentText,
+      explanation: currentExplanation
+    });
+    if (res.success) {
+      statusEl.textContent = `已下载于 ${res.filename}`;
+      statusEl.className = 'ds-download-status ds-status-visible ds-status-success';
+    } else {
+      statusEl.textContent = `下载失败：${res.error}`;
+      statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
+    }
+  } catch (err) {
+    statusEl.textContent = `下载失败：${err.message}`;
+    statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
+  }
+
+  // 3 秒后淡化消失
   setTimeout(() => {
-    btn.textContent = original;
-    btn.style.color = '';
-  }, 1500);
+    statusEl.className = 'ds-download-status';
+    statusEl.textContent = '';
+  }, 3000);
 }
 
 // ── 提取网页上下文 ──
@@ -220,10 +236,9 @@ function getPageContext() {
   const selectedText = sel.toString();
 
   // 向上查找最近的块级父元素
-  const blockTags = new Set(['P', 'DIV', 'LI', 'TD', 'TH', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION', 'DD', 'DT', 'ASIDE', 'MAIN', 'SUMMARY']);
   let container = range.commonAncestorContainer;
   while (container && container !== document.body) {
-    if (container.nodeType === 1 && blockTags.has(container.tagName)) break;
+    if (container.nodeType === 1 && BLOCK_TAGS.has(container.tagName)) break;
     container = container.parentElement;
   }
   if (!container || container === document.body) {
@@ -316,7 +331,8 @@ ${text}
 // ── 调用 DeepSeek API（直接 fetch，不经过 Service Worker）──
 async function callDeepSeek(apiKey, model, prompt, thinkingEnabled, reasoningEffort) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeoutMs = thinkingEnabled ? 30000 : 15000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const body = {
@@ -371,22 +387,22 @@ async function requestExplanation(text) {
   try {
     const config = await getConfig();
     if (!config.apiKey) {
-      if (reqId !== pendingRequest) return;
+      if (isStale(reqId)) return;
       setError(text, '请先在扩展弹窗中设置 DeepSeek API Key');
       return;
     }
     if (config.enabled === false) {
-      if (reqId !== pendingRequest) return;
+      if (isStale(reqId)) return;
       setError(text, '扩展已禁用');
       return;
     }
 
     const useContext = config.usePageContext !== false;
     const context = useContext ? getPageContext() : null;
-    const cacheKey = useContext ? `${config.model}:${location.href}:${text}` : `${config.model}:${text}`;
+    const cacheKey = useContext ? `${config.model}:${location.origin}${location.pathname}:${text}` : `${config.model}:${text}`;
 
     if (CACHE.has(cacheKey)) {
-      if (reqId !== pendingRequest) return;
+      if (isStale(reqId)) return;
       setExplanation(text, CACHE.get(cacheKey), config.model, true);
       return;
     }
@@ -394,7 +410,7 @@ async function requestExplanation(text) {
     const prompt = buildPrompt(text, config.language, context);
     const explanation = await callDeepSeek(config.apiKey, config.model, prompt, config.thinkingEnabled, config.reasoningEffort);
 
-    if (reqId !== pendingRequest) return;
+    if (isStale(reqId)) return;
 
     CACHE.set(cacheKey, explanation);
     if (CACHE.size > CACHE_MAX) {
@@ -404,7 +420,7 @@ async function requestExplanation(text) {
 
     setExplanation(text, explanation, config.model, false);
   } catch (err) {
-    if (reqId !== pendingRequest) return;
+    if (isStale(reqId)) return;
     setError(text, err.message || '请求失败，请重试');
   }
 }
@@ -423,6 +439,8 @@ function escapeHtml(str) {
 function isInTooltip(node) {
   return tooltip && tooltip.contains(node);
 }
+
+function isStale(reqId) { return reqId !== pendingRequest; }
 
 // ── 事件监听 ──
 // ── 触发模式与鼠标事件 ──

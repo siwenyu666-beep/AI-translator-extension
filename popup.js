@@ -40,7 +40,9 @@ const $status = document.getElementById('status');
 $saveBtn.addEventListener('click', async () => {
   const apiKey = $apiKey.value.trim();
 
-  if (!apiKey) {
+  // 仅当从未保存过 Key 时才拦截空值（允许修改其他设置时不重输 Key）
+  const stored = await chrome.storage.local.get({ apiKey: '' });
+  if (!apiKey && !stored.apiKey) {
     showStatus('请输入 DeepSeek API Key', 'error');
     return;
   }
@@ -81,6 +83,15 @@ $thinkingEnabled.addEventListener('change', () => {
 
 $reasoningEffort.addEventListener('change', () => {
   chrome.storage.local.set({ reasoningEffort: $reasoningEffort.value });
+});
+
+// ── 模型 / 语言实时保存 ──
+$model.addEventListener('change', () => {
+  chrome.storage.local.set({ model: $model.value });
+});
+
+$language.addEventListener('change', () => {
+  chrome.storage.local.set({ language: $language.value });
 });
 
 function showStatus(msg, type) {
