@@ -263,27 +263,140 @@ function getPageContext() {
   };
 }
 
+// ── 缓存 & 配置 ──
+const CACHE = new Map();
+const CACHE_MAX = 50;
+
+async function getConfig() {
+  const defaults = {
+    apiKey: '',
+    model: 'deepseek-v4-flash',
+    enabled: true,
+    language: 'auto',
+    usePageContext: true
+  };
+  return await chrome.storage.local.get(defaults);
+}
+
+// ── 构建 Prompt ──
+function buildPrompt(text, language, context) {
+  const langHint = language === 'auto'
+    ? '请自动检测文本语言：如果是英文，用英文解释；如果是中文，用中文解释；其他语言用中文解释。'
+    : language === 'en'
+      ? '请用英文解释以下内容。'
+      : '请用中文解释以下内容。';
+
+  let contextBlock = '';
+  if (context && (context.before || context.after)) {
+    contextBlock = `\n[网页标题]\n${context.title || '未知'}\n\n[选中文本的上下文]\n...${context.before || ''}[选中文本]${context.after || ''}...\n`;
+  }
+
+  return `你是一个知识渊博、擅于解释的助手。用户选中了一段文本，请结合上下文给出简洁清晰的分点解释。
+${contextBlock}
+[需要解释的文本]
+"""
+${text}
+"""
+
+规则：
+- ${langHint}
+- 用编号列表（1. 2. 3.）分点解释，每点一行
+- 结合上文和下文的语境来理解选中文本的具体含义
+- 如果选中文本在上下文中是专业术语或特定领域的用法，请给出该领域内的解释
+- 不要使用任何 Markdown 格式：不要用 ** 加粗、不要用 * 斜体、不要用反引号、不要用标题符号
+- 如果文本是单词或短语：分点给出释义、词性、用法、例句
+- 如果文本是句子或段落：分点解释含义、背景、关键信息
+- 如果是专业术语：分点给出定义、背景、相关知识
+- 整体控制在 3~5 个要点，每个要点一句话，简洁有力
+- 不要写"这段文字说的是"之类的开场白，直接分点解释`;
+}
+
+// ── 调用 DeepSeek API（直接 fetch，不经过 Service Worker）──
+async function callDeepSeek(apiKey, model, prompt) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+
+  try {
+    const res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: 'system', content: '你是一个知识渊博、擅于解释的助手。给出简洁清晰的解释，不要重复开场白，直接解释。' },
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 400,
+        stream: false
+      }),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      if (res.status === 401) throw new Error('API Key 无效，请检查设置');
+      if (res.status === 402) throw new Error('账户余额不足，请充值');
+      if (res.status === 403) throw new Error('API Key 无权访问，请检查');
+      if (res.status === 429) throw new Error('请求过于频繁，请稍后再试');
+      if (res.status === 400) throw new Error('请求参数有误，请重试');
+      throw new Error(`API 错误 (${res.status}): ${errBody.slice(0, 100)}`);
+    }
+
+    const data = await res.json();
+    const text_result = data?.choices?.[0]?.message?.content;
+    if (!text_result) throw new Error('DeepSeek 未返回有效解释，请重试');
+    return text_result.trim();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ── 请求解释 ──
 async function requestExplanation(text) {
   const reqId = ++pendingRequest;
 
   try {
-    const context = getPageContext();
-    const res = await chrome.runtime.sendMessage({
-      type: 'EXPLAIN',
-      text,
-      context
-    });
+    const config = await getConfig();
+    if (!config.apiKey) {
+      if (reqId !== pendingRequest) return;
+      setError(text, '请先在扩展弹窗中设置 DeepSeek API Key');
+      return;
+    }
+    if (config.enabled === false) {
+      if (reqId !== pendingRequest) return;
+      setError(text, '扩展已禁用');
+      return;
+    }
+
+    const useContext = config.usePageContext !== false;
+    const context = useContext ? getPageContext() : null;
+    const cacheKey = useContext ? `${config.model}:${location.href}:${text}` : `${config.model}:${text}`;
+
+    if (CACHE.has(cacheKey)) {
+      if (reqId !== pendingRequest) return;
+      setExplanation(text, CACHE.get(cacheKey), config.model, true);
+      return;
+    }
+
+    const prompt = buildPrompt(text, config.language, context);
+    const explanation = await callDeepSeek(config.apiKey, config.model, prompt);
+
     if (reqId !== pendingRequest) return;
 
-    if (res.error) {
-      setError(text, res.error);
-    } else {
-      setExplanation(text, res.explanation, res.model, res.cached);
+    CACHE.set(cacheKey, explanation);
+    if (CACHE.size > CACHE_MAX) {
+      const first = CACHE.keys().next().value;
+      CACHE.delete(first);
     }
+
+    setExplanation(text, explanation, config.model, false);
   } catch (err) {
     if (reqId !== pendingRequest) return;
-    setError(text, '无法连接到扩展，请刷新页面后重试');
+    setError(text, err.message || '请求失败，请重试');
   }
 }
 
