@@ -12,6 +12,8 @@ const $effortSection = document.getElementById('effort-section');
 const $downloadPath = document.getElementById('download-path');
 const $pathPreview = document.getElementById('path-preview');
 const $copyPathBtn = document.getElementById('copy-path-btn');
+const $saveAs = document.getElementById('save-as');
+const $hintDownload = document.getElementById('hint-download');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -26,6 +28,7 @@ const $status = document.getElementById('status');
     thinkingEnabled: false,
     reasoningEffort: 'high',
     downloadPath: '笔记/',
+    saveAs: false,
     triggerMode: 'auto'
   });
 
@@ -39,6 +42,8 @@ const $status = document.getElementById('status');
   $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
   $downloadPath.value = config.downloadPath || '笔记/';
   updatePathPreview();
+  $saveAs.checked = config.saveAs === true;
+  toggleSaveAsUI();
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
@@ -62,6 +67,7 @@ $saveBtn.addEventListener('click', async () => {
     thinkingEnabled: $thinkingEnabled.checked,
     reasoningEffort: $reasoningEffort.value,
     downloadPath: normalizePath($downloadPath.value),
+    saveAs: $saveAs.checked,
     triggerMode: $triggerMode.value
   };
 
@@ -130,6 +136,19 @@ $copyPathBtn.addEventListener('click', async () => {
     $copyPathBtn.textContent = '❌ 失败';
     setTimeout(() => { $copyPathBtn.textContent = '📋 复制路径'; }, 1500);
   }
+});
+
+// ── 手动选择下载位置 → 联动隐藏路径设置 ──
+function toggleSaveAsUI() {
+  const on = $saveAs.checked;
+  $downloadPath.style.display = on ? 'none' : '';
+  $hintDownload.style.display = on ? 'none' : '';
+  $copyPathBtn.style.display = on ? 'none' : '';
+}
+
+$saveAs.addEventListener('change', () => {
+  toggleSaveAsUI();
+  chrome.storage.local.set({ saveAs: $saveAs.checked });
 });
 
 function showStatus(msg, type) {
