@@ -34,7 +34,10 @@ async function handleDownload(selectedText, explanation) {
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-  const filename = `笔记/DeepSeek解释_${timestamp}.txt`;
+
+  const stored = await chrome.storage.local.get({ downloadPath: '笔记/' });
+  const downloadPath = stored.downloadPath || '笔记/';
+  const filename = `${downloadPath}DeepSeek解释_${timestamp}.txt`;
 
   const content = [
     `DeepSeek 智能解释`,

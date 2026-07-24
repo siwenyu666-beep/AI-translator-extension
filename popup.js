@@ -9,6 +9,8 @@ const $triggerMode = document.getElementById('trigger-mode');
 const $thinkingEnabled = document.getElementById('thinking-enabled');
 const $reasoningEffort = document.getElementById('reasoning-effort');
 const $effortSection = document.getElementById('effort-section');
+const $downloadPath = document.getElementById('download-path');
+const $pathPreview = document.getElementById('path-preview');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -22,6 +24,7 @@ const $status = document.getElementById('status');
     usePageContext: true,
     thinkingEnabled: false,
     reasoningEffort: 'high',
+    downloadPath: '笔记/',
     triggerMode: 'auto'
   });
 
@@ -33,6 +36,8 @@ const $status = document.getElementById('status');
   $thinkingEnabled.checked = config.thinkingEnabled === true;
   $reasoningEffort.value = config.reasoningEffort || 'high';
   $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
+  $downloadPath.value = config.downloadPath || '笔记/';
+  updatePathPreview();
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
@@ -55,6 +60,7 @@ $saveBtn.addEventListener('click', async () => {
     usePageContext: $useContext.checked,
     thinkingEnabled: $thinkingEnabled.checked,
     reasoningEffort: $reasoningEffort.value,
+    downloadPath: normalizePath($downloadPath.value),
     triggerMode: $triggerMode.value
   };
 
@@ -92,6 +98,23 @@ $model.addEventListener('change', () => {
 
 $language.addEventListener('change', () => {
   chrome.storage.local.set({ language: $language.value });
+});
+
+// ── 下载路径：实时保存 + 路径预览 ──
+function normalizePath(p) {
+  let path = (p || '').trim().replace(/\/g, '/');
+  if (path && !path.endsWith('/')) path += '/';
+  return path || '笔记/';
+}
+
+function updatePathPreview() {
+  $pathPreview.textContent = normalizePath($downloadPath.value);
+}
+
+$downloadPath.addEventListener('input', updatePathPreview);
+
+$downloadPath.addEventListener('change', () => {
+  chrome.storage.local.set({ downloadPath: normalizePath($downloadPath.value) });
 });
 
 function showStatus(msg, type) {

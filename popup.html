@@ -85,9 +85,12 @@
       </select>
     </div>
 
-    <div class="hint-download">
-      📥 默认下载目录\笔记\DeepSeek解释_日期时间.txt<br>
-      可在 Edge 设置 → 下载 中查看或修改默认目录
+    <div class="section">
+      <label class="label" for="download-path">下载子目录</label>
+      <input type="text" id="download-path" placeholder="笔记/" />
+      <div class="hint-download">
+        📥 完整路径：浏览器默认下载目录\<span id="path-preview">笔记/</span>DeepSeek解释_时间.txt
+      </div>
     </div>
 
     <div class="actions">
