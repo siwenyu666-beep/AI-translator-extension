@@ -8,7 +8,7 @@ const CACHE_MAX = 50;
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'deepseek-explain',
-    title: '智能解释',
+    title: 'DeepSeek 智能解释',
     contexts: ['selection']
   });
 });
