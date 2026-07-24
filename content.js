@@ -199,28 +199,63 @@ async function handleDownload(e) {
   if (!currentText || !currentExplanation) return;
 
   const statusEl = getTooltip().querySelector('.ds-download-status');
-  statusEl.textContent = '下载中…';
-  statusEl.className = 'ds-download-status ds-status-visible';
 
   try {
-    const res = await chrome.runtime.sendMessage({
-      type: 'DOWNLOAD',
-      text: currentText,
-      explanation: currentExplanation
-    });
-    if (res.success) {
-      statusEl.textContent = `已下载于 ${res.filename}`;
-      statusEl.className = 'ds-download-status ds-status-visible ds-status-success';
+    const config = await getConfig();
+
+    if (config.saveAs) {
+      // 手动选择模式：走 background 弹出另存为
+      statusEl.textContent = '下载中…';
+      statusEl.className = 'ds-download-status ds-status-visible';
+      const res = await chrome.runtime.sendMessage({
+        type: 'DOWNLOAD',
+        text: currentText,
+        explanation: currentExplanation
+      });
+      if (res.success) {
+        statusEl.textContent = `已保存`;
+        statusEl.className = 'ds-download-status ds-status-visible ds-status-success';
+      } else {
+        statusEl.textContent = `下载失败：${res.error}`;
+        statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
+      }
     } else {
-      statusEl.textContent = `下载失败：${res.error}`;
-      statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
+      // 静默模式：Blob 直接下载，不依赖 Service Worker
+      const now = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+      const filename = `DeepSeek解释_${ts}.txt`;
+
+      const text = [
+        `DeepSeek 智能解释`,
+        `生成时间: ${now.toLocaleString('zh-CN')}`,
+        ``,
+        `── 选中原文 ──`,
+        currentText,
+        ``,
+        `── 解释内容 ──`,
+        currentExplanation,
+        ``,
+      ].join('\n');
+
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      statusEl.textContent = `已下载于 默认下载目录\\${filename}`;
+      statusEl.className = 'ds-download-status ds-status-visible ds-status-success';
     }
   } catch (err) {
     statusEl.textContent = `下载失败：${err.message}`;
     statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
   }
 
-  // 3 秒后淡化消失
   setTimeout(() => {
     statusEl.className = 'ds-download-status';
     statusEl.textContent = '';

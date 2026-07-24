@@ -9,11 +9,7 @@ const $triggerMode = document.getElementById('trigger-mode');
 const $thinkingEnabled = document.getElementById('thinking-enabled');
 const $reasoningEffort = document.getElementById('reasoning-effort');
 const $effortSection = document.getElementById('effort-section');
-const $downloadPath = document.getElementById('download-path');
-const $pathPreview = document.getElementById('path-preview');
-const $copyPathBtn = document.getElementById('copy-path-btn');
 const $saveAs = document.getElementById('save-as');
-const $hintDownload = document.getElementById('hint-download');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -27,7 +23,6 @@ const $status = document.getElementById('status');
     usePageContext: true,
     thinkingEnabled: false,
     reasoningEffort: 'high',
-    downloadPath: '笔记/',
     saveAs: false,
     triggerMode: 'auto'
   });
@@ -40,10 +35,7 @@ const $status = document.getElementById('status');
   $thinkingEnabled.checked = config.thinkingEnabled === true;
   $reasoningEffort.value = config.reasoningEffort || 'high';
   $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
-  $downloadPath.value = config.downloadPath || '笔记/';
-  updatePathPreview();
   $saveAs.checked = config.saveAs === true;
-  toggleSaveAsUI();
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
@@ -66,7 +58,6 @@ $saveBtn.addEventListener('click', async () => {
     usePageContext: $useContext.checked,
     thinkingEnabled: $thinkingEnabled.checked,
     reasoningEffort: $reasoningEffort.value,
-    downloadPath: normalizePath($downloadPath.value),
     saveAs: $saveAs.checked,
     triggerMode: $triggerMode.value
   };
@@ -107,47 +98,8 @@ $language.addEventListener('change', () => {
   chrome.storage.local.set({ language: $language.value });
 });
 
-// ── 下载路径：实时保存 + 路径预览 ──
-function normalizePath(p) {
-  let path = (p || '').trim().replace(/\/g, '/');
-  if (path && !path.endsWith('/')) path += '/';
-  return path || '笔记/';
-}
-
-function updatePathPreview() {
-  $pathPreview.textContent = normalizePath($downloadPath.value);
-}
-
-$downloadPath.addEventListener('input', updatePathPreview);
-
-$downloadPath.addEventListener('change', () => {
-  chrome.storage.local.set({ downloadPath: normalizePath($downloadPath.value) });
-});
-
-// ── 复制下载路径 ──
-$copyPathBtn.addEventListener('click', async () => {
-  const path = normalizePath($downloadPath.value);
-  const full = `默认下载目录\\${path.replace(/\//g, '\\')}DeepSeek解释_时间.txt`;
-  try {
-    await navigator.clipboard.writeText(full);
-    $copyPathBtn.textContent = '✅ 已复制';
-    setTimeout(() => { $copyPathBtn.textContent = '📋 复制路径'; }, 1500);
-  } catch {
-    $copyPathBtn.textContent = '❌ 失败';
-    setTimeout(() => { $copyPathBtn.textContent = '📋 复制路径'; }, 1500);
-  }
-});
-
-// ── 手动选择下载位置 → 联动隐藏路径设置 ──
-function toggleSaveAsUI() {
-  const on = $saveAs.checked;
-  $downloadPath.style.display = on ? 'none' : '';
-  $hintDownload.style.display = on ? 'none' : '';
-  $copyPathBtn.style.display = on ? 'none' : '';
-}
-
+// ── 手动选择下载位置 ──
 $saveAs.addEventListener('change', () => {
-  toggleSaveAsUI();
   chrome.storage.local.set({ saveAs: $saveAs.checked });
 });
 
