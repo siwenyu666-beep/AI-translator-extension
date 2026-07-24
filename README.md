@@ -15,22 +15,17 @@
 
 ## 安装
 
-### 方式一：Download ZIP（推荐）
-
-1. 点击仓库右上角绿色 **"<> Code"** → **"Download ZIP"**
-2. 解压到任意文件夹
-3. 打开 Edge，地址栏输入 `edge://extensions`
-4. 开启左侧「开发人员模式」
-5. 点击「加载解压缩的扩展」，选择解压后的文件夹
-6. 点击工具栏扩展图标，填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
-
-### 方式二：git clone
-
 ```bash
 git clone https://github.com/zdjmrq/siwenyudecangku.git
 ```
 
-克隆后可以删除 `.git` 文件夹（不影响扩展运行），保持文件夹干净。其余步骤同方式一的 3~6。
+克隆后可以删除 `.git` 文件夹（不影响扩展运行），保持文件夹干净。
+
+1. 打开 Edge，地址栏输入 `edge://extensions`
+2. 开启左侧「开发人员模式」
+3. 点击「加载解压缩的扩展」，选择克隆后的文件夹
+4. 点击工具栏扩展图标，填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
+5. 去任意网页选中文字，即可看到解释
 
 ## 使用技巧
 
