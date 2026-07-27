@@ -187,6 +187,23 @@
   letter-spacing: 0.2px;
 }
 
+/* ── 下载状态（半透明小字，淡化消失）── */
+.ds-download-status {
+  font-size: 10px;
+  color: transparent;
+  transition: color 0.3s, opacity 0.3s;
+  opacity: 0;
+}
+
+.ds-download-status.ds-status-visible {
+  color: #64748b;
+  opacity: 1;
+}
+
+.ds-download-status.ds-status-error {
+  color: #dc2626;
+}
+
 .ds-powered {
   font-size: 10px;
   color: #cbd5e1;

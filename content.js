@@ -8,6 +8,8 @@ let isLoading = false;
 let hideTimer = null;
 let pendingRequest = 0;
 
+const BLOCK_TAGS = new Set(['P', 'DIV', 'LI', 'TD', 'TH', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION', 'DD', 'DT', 'ASIDE', 'MAIN', 'SUMMARY']);
+
 // ── 创建弹窗 DOM（只创建一次） ──
 function getTooltip() {
   if (!tooltip) {
@@ -36,6 +38,7 @@ function getTooltip() {
       </div>
       <div class="ds-footer">
         <span class="ds-model-tag"></span>
+        <span class="ds-download-status"></span>
         <span class="ds-powered">Powered by DeepSeek</span>
       </div>
     `;
@@ -104,6 +107,8 @@ function hideTooltip() {
   currentExplanation = null;
   isLoading = false;
   pendingRequest++;
+  const st = tooltip.querySelector('.ds-download-status');
+  if (st) { st.className = 'ds-download-status'; st.textContent = ''; }
 }
 
 function scheduleHide() {
@@ -146,7 +151,7 @@ function setExplanation(text, explanation, model, cached) {
   const el = getTooltip();
   el.querySelector('.ds-quote').textContent = truncate(text, 80);
   el.querySelector('.ds-body').textContent = cleaned;
-  const tag = model ? model.replace('deepseek-', '') : '';
+  const tag = model ? model.replace('deepseek-v4-', '') : '';
   el.querySelector('.ds-model-tag').textContent = cached ? (tag + ' · 缓存') : tag;
   el.querySelector('.ds-actions').style.display = 'flex';
 }
@@ -191,24 +196,47 @@ async function handleCopy(e) {
 }
 
 // ── 下载解释 ──
-function handleDownload(e) {
+async function handleDownload(e) {
   e.stopPropagation();
   if (!currentText || !currentExplanation) return;
 
-  chrome.runtime.sendMessage({
-    type: 'DOWNLOAD',
-    text: currentText,
-    explanation: currentExplanation
-  });
+  const statusEl = getTooltip().querySelector('.ds-download-status');
 
-  const btn = tooltip.querySelector('.ds-btn-download .ds-btn-label');
-  const original = btn.textContent;
-  btn.textContent = '已下载';
-  btn.style.color = '#16a34a';
-  setTimeout(() => {
-    btn.textContent = original;
-    btn.style.color = '';
-  }, 1500);
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const filename = `DeepSeek解释_${ts}.txt`;
+
+    const text = [
+      `DeepSeek 智能解释`,
+      `生成时间: ${now.toLocaleString('zh-CN')}`,
+      `来源页面: ${location.href}`,
+      ``,
+      `── 选中原文 ──`,
+      currentText,
+      ``,
+      `── 解释内容 ──`,
+      currentExplanation,
+      ``,
+    ].join('\n');
+
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    statusEl.textContent = `已下载于 默认下载目录\\${filename}`;
+    statusEl.className = 'ds-download-status ds-status-visible';
+  } catch (err) {
+    statusEl.textContent = `下载失败：${err.message}`;
+    statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
+  }
 }
 
 // ── 提取网页上下文 ──
@@ -220,10 +248,9 @@ function getPageContext() {
   const selectedText = sel.toString();
 
   // 向上查找最近的块级父元素
-  const blockTags = new Set(['P', 'DIV', 'LI', 'TD', 'TH', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION', 'DD', 'DT', 'ASIDE', 'MAIN', 'SUMMARY']);
   let container = range.commonAncestorContainer;
   while (container && container !== document.body) {
-    if (container.nodeType === 1 && blockTags.has(container.tagName)) break;
+    if (container.nodeType === 1 && BLOCK_TAGS.has(container.tagName)) break;
     container = container.parentElement;
   }
   if (!container || container === document.body) {
@@ -263,27 +290,150 @@ function getPageContext() {
   };
 }
 
+// ── 缓存 & 配置 ──
+const CACHE = new Map();
+const CACHE_MAX = 50;
+
+async function getConfig() {
+  const defaults = {
+    apiKey: '',
+    model: 'deepseek-v4-flash',
+    enabled: true,
+    language: 'auto',
+    usePageContext: true,
+    thinkingEnabled: false,
+    reasoningEffort: 'high'
+  };
+  return await chrome.storage.local.get(defaults);
+}
+
+// ── 构建 Prompt ──
+function buildPrompt(text, language, context) {
+  const langHint = language === 'auto'
+    ? '请自动检测文本语言：如果是英文，用英文解释；如果是中文，用中文解释；其他语言用中文解释。'
+    : language === 'en'
+      ? '请用英文解释以下内容。'
+      : '请用中文解释以下内容。';
+
+  let contextBlock = '';
+  if (context && (context.before || context.after)) {
+    contextBlock = `\n[网页标题]\n${context.title || '未知'}\n\n[选中文本的上下文]\n...${context.before || ''}[选中文本]${context.after || ''}...\n`;
+  }
+
+  return `你是一个知识渊博、擅于解释的助手。用户选中了一段文本，请结合上下文给出简洁清晰的分点解释。
+${contextBlock}
+[需要解释的文本]
+"""
+${text}
+"""
+
+规则：
+- ${langHint}
+- 用编号列表（1. 2. 3.）分点解释，每点一行
+- 结合上文和下文的语境来理解选中文本的具体含义
+- 如果选中文本在上下文中是专业术语或特定领域的用法，请给出该领域内的解释
+- 不要使用任何 Markdown 格式：不要用 ** 加粗、不要用 * 斜体、不要用反引号、不要用标题符号
+- 如果文本是单词或短语：分点给出释义、词性、用法、例句
+- 如果文本是句子或段落：分点解释含义、背景、关键信息
+- 如果是专业术语：分点给出定义、背景、相关知识
+- 整体控制在 3~5 个要点，每个要点一句话，简洁有力
+- 不要写"这段文字说的是"之类的开场白，直接分点解释`;
+}
+
+// ── 调用 DeepSeek API（直接 fetch，不经过 Service Worker）──
+async function callDeepSeek(apiKey, model, prompt, thinkingEnabled, reasoningEffort) {
+  const controller = new AbortController();
+  const timeoutMs = thinkingEnabled ? 30000 : 15000;
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const body = {
+      model: model,
+      messages: [
+        { role: 'system', content: '你是一个知识渊博、擅于解释的助手。给出简洁清晰的解释，不要重复开场白，直接解释。' },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 400,
+      stream: false
+    };
+
+    if (thinkingEnabled) {
+      body.thinking = { type: 'enabled' };
+      body.reasoning_effort = reasoningEffort || 'high';
+    }
+
+    const res = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      if (res.status === 401) throw new Error('API Key 无效，请检查设置');
+      if (res.status === 402) throw new Error('账户余额不足，请充值');
+      if (res.status === 403) throw new Error('API Key 无权访问，请检查');
+      if (res.status === 429) throw new Error('请求过于频繁，请稍后再试');
+      if (res.status === 400) throw new Error('请求参数有误，请重试');
+      throw new Error(`API 错误 (${res.status}): ${errBody.slice(0, 100)}`);
+    }
+
+    const data = await res.json();
+    const text_result = data?.choices?.[0]?.message?.content;
+    if (!text_result) throw new Error('DeepSeek 未返回有效解释，请重试');
+    return text_result.trim();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 // ── 请求解释 ──
 async function requestExplanation(text) {
   const reqId = ++pendingRequest;
 
   try {
-    const context = getPageContext();
-    const res = await chrome.runtime.sendMessage({
-      type: 'EXPLAIN',
-      text,
-      context
-    });
-    if (reqId !== pendingRequest) return;
-
-    if (res.error) {
-      setError(text, res.error);
-    } else {
-      setExplanation(text, res.explanation, res.model, res.cached);
+    const config = await getConfig();
+    if (!config.apiKey) {
+      if (isStale(reqId)) return;
+      setError(text, '请先在扩展弹窗中设置 DeepSeek API Key');
+      return;
     }
+    if (config.enabled === false) {
+      if (isStale(reqId)) return;
+      setError(text, '扩展已禁用');
+      return;
+    }
+
+    const useContext = config.usePageContext !== false;
+    const context = useContext ? getPageContext() : null;
+    const cacheKey = useContext ? `${config.model}:${location.origin}${location.pathname}:${text}` : `${config.model}:${text}`;
+
+    if (CACHE.has(cacheKey)) {
+      if (isStale(reqId)) return;
+      setExplanation(text, CACHE.get(cacheKey), config.model, true);
+      return;
+    }
+
+    const prompt = buildPrompt(text, config.language, context);
+    const explanation = await callDeepSeek(config.apiKey, config.model, prompt, config.thinkingEnabled, config.reasoningEffort);
+
+    if (isStale(reqId)) return;
+
+    CACHE.set(cacheKey, explanation);
+    if (CACHE.size > CACHE_MAX) {
+      const first = CACHE.keys().next().value;
+      CACHE.delete(first);
+    }
+
+    setExplanation(text, explanation, config.model, false);
   } catch (err) {
-    if (reqId !== pendingRequest) return;
-    setError(text, '无法连接到扩展，请刷新页面后重试');
+    if (isStale(reqId)) return;
+    setError(text, err.message || '请求失败，请重试');
   }
 }
 
@@ -301,6 +451,8 @@ function escapeHtml(str) {
 function isInTooltip(node) {
   return tooltip && tooltip.contains(node);
 }
+
+function isStale(reqId) { return reqId !== pendingRequest; }
 
 // ── 事件监听 ──
 // ── 触发模式与鼠标事件 ──

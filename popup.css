@@ -32,6 +32,16 @@ body {
   color: #333;
 }
 
+.version-tag {
+  font-size: 10px;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
 /* ── Section ── */
 .section {
   margin-bottom: 16px;
@@ -96,6 +106,18 @@ select:focus {
 
 .hint a:hover {
   text-decoration: underline;
+}
+
+/* ── 下载位置提示 ── */
+.hint-download {
+  margin-top: 6px;
+  padding: 8px 10px;
+  font-size: 11px;
+  color: #94a3b8;
+  background: #f8fafc;
+  border-radius: 6px;
+  line-height: 1.6;
+  border: 1px dashed #e2e8f0;
 }
 
 /* ── 开关 ── */

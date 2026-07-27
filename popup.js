@@ -6,6 +6,9 @@ const $language = document.getElementById('language');
 const $enabled = document.getElementById('enabled');
 const $useContext = document.getElementById('use-context');
 const $triggerMode = document.getElementById('trigger-mode');
+const $thinkingEnabled = document.getElementById('thinking-enabled');
+const $reasoningEffort = document.getElementById('reasoning-effort');
+const $effortSection = document.getElementById('effort-section');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
@@ -13,10 +16,12 @@ const $status = document.getElementById('status');
 (async () => {
   const config = await chrome.storage.local.get({
     apiKey: '',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     enabled: true,
     language: 'auto',
     usePageContext: true,
+    thinkingEnabled: false,
+    reasoningEffort: 'high',
     triggerMode: 'auto'
   });
 
@@ -25,6 +30,9 @@ const $status = document.getElementById('status');
   $language.value = config.language;
   $enabled.checked = config.enabled !== false;
   $useContext.checked = config.usePageContext !== false;
+  $thinkingEnabled.checked = config.thinkingEnabled === true;
+  $reasoningEffort.value = config.reasoningEffort || 'high';
+  $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
@@ -32,7 +40,9 @@ const $status = document.getElementById('status');
 $saveBtn.addEventListener('click', async () => {
   const apiKey = $apiKey.value.trim();
 
-  if (!apiKey) {
+  // 仅当从未保存过 Key 时才拦截空值（允许修改其他设置时不重输 Key）
+  const stored = await chrome.storage.local.get({ apiKey: '' });
+  if (!apiKey && !stored.apiKey) {
     showStatus('请输入 DeepSeek API Key', 'error');
     return;
   }
@@ -43,6 +53,8 @@ $saveBtn.addEventListener('click', async () => {
     language: $language.value,
     enabled: $enabled.checked,
     usePageContext: $useContext.checked,
+    thinkingEnabled: $thinkingEnabled.checked,
+    reasoningEffort: $reasoningEffort.value,
     triggerMode: $triggerMode.value
   };
 
@@ -62,6 +74,26 @@ $enabled.addEventListener('change', () => {
 $useContext.addEventListener('change', () => {
   chrome.storage.local.set({ usePageContext: $useContext.checked });
 });
+
+// ── 思考模式开关 → 联动强度选择显隐 ──
+$thinkingEnabled.addEventListener('change', () => {
+  $effortSection.style.display = $thinkingEnabled.checked ? '' : 'none';
+  chrome.storage.local.set({ thinkingEnabled: $thinkingEnabled.checked });
+});
+
+$reasoningEffort.addEventListener('change', () => {
+  chrome.storage.local.set({ reasoningEffort: $reasoningEffort.value });
+});
+
+// ── 模型 / 语言实时保存 ──
+$model.addEventListener('change', () => {
+  chrome.storage.local.set({ model: $model.value });
+});
+
+$language.addEventListener('change', () => {
+  chrome.storage.local.set({ language: $language.value });
+});
+
 
 function showStatus(msg, type) {
   $status.textContent = msg;

@@ -10,6 +10,7 @@
   <div class="container">
     <div class="logo">
       <span class="logo-text">DeepSeek 智能解释</span>
+      <span class="version-tag">v2.1.6</span>
     </div>
 
     <div class="section">
@@ -30,8 +31,8 @@
     <div class="section">
       <label class="label" for="model">模型</label>
       <select id="model">
-        <option value="deepseek-chat">DeepSeek-V3（推荐 · 快速准确）</option>
-        <option value="deepseek-reasoner">DeepSeek-R1（深度推理）</option>
+        <option value="deepseek-v4-flash">DeepSeek-V4-Flash（推荐 · 快速准确）</option>
+        <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
       </select>
     </div>
 
@@ -41,6 +42,22 @@
         <option value="auto">自动检测（推荐）</option>
         <option value="zh">始终用中文</option>
         <option value="en">始终用英文</option>
+      </select>
+    </div>
+
+    <div class="section toggle-row">
+      <label class="label" for="thinking-enabled">深度思考模式</label>
+      <label class="switch">
+        <input type="checkbox" id="thinking-enabled" />
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="section" id="effort-section">
+      <label class="label" for="reasoning-effort">思考强度</label>
+      <select id="reasoning-effort">
+        <option value="high">高（推荐）</option>
+        <option value="max">最高</option>
       </select>
     </div>
 
@@ -66,6 +83,10 @@
         <option value="auto">选中自动搜索（推荐）</option>
         <option value="contextmenu">右键菜单搜索</option>
       </select>
+    </div>
+
+    <div class="hint-download">
+      📥 下载位置：浏览器默认下载目录
     </div>
 
     <div class="actions">
