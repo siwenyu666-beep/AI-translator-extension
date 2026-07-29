@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "DeepSeek 智能解释",
-  "version": "2.1.6",
-  "description": "选中文本，DeepSeek 立刻为你解释——英文给英文释义，中文给中文解读，浮窗即显即消。",
-  "permissions": ["storage", "downloads", "contextMenus"],
+  "name": "DeepSeek 智能解释 & 翻译",
+  "version": "3.1.0",
+  "description": "选中文本智能解释/翻译，全文覆盖翻译。解释与翻译独立模型配置，全部流式输出。",
+  "permissions": ["storage", "downloads", "contextMenus", "scripting"],
   "host_permissions": [
     "<all_urls>",
     "https://api.deepseek.com/*"
@@ -19,7 +19,13 @@
     }
   ],
   "action": {
-    "default_title": "DeepSeek 智能解释",
+    "default_title": "DeepSeek 智能解释 & 翻译",
     "default_popup": "popup.html"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content-fullpage.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

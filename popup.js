@@ -1,46 +1,135 @@
-// ========== DeepSeek 智能解释 - Popup ==========
+// ========== DeepSeek 智能解释 & 翻译 — Popup ==========
+// 双标签布局：解释 / 翻译各自独立模型配置 + 通用设置
 
+// ── DOM 引用 ──
+// 标签
+const $tabBtns = document.querySelectorAll('.tab-btn');
+const $tabPanels = document.querySelectorAll('.tab-panel');
+
+// 解释标签
+const $explainModel = document.getElementById('explain-model');
+const $explainThinking = document.getElementById('explain-thinking');
+const $explainEffort = document.getElementById('explain-effort');
+const $explainEffortSection = document.getElementById('explain-effort-section');
+const $explainLanguage = document.getElementById('explain-language');
+
+// 翻译标签
+const $translateModel = document.getElementById('translate-model');
+const $translateThinking = document.getElementById('translate-thinking');
+const $translateEffort = document.getElementById('translate-effort');
+const $translateEffortSection = document.getElementById('translate-effort-section');
+const $targetLanguage = document.getElementById('target-language');
+
+// 通用
 const $apiKey = document.getElementById('api-key');
-const $model = document.getElementById('model');
-const $language = document.getElementById('language');
 const $enabled = document.getElementById('enabled');
 const $useContext = document.getElementById('use-context');
 const $triggerMode = document.getElementById('trigger-mode');
-const $thinkingEnabled = document.getElementById('thinking-enabled');
-const $reasoningEffort = document.getElementById('reasoning-effort');
-const $effortSection = document.getElementById('effort-section');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
-// ── 加载配置 ──
-(async () => {
-  const config = await chrome.storage.local.get({
-    apiKey: '',
-    model: 'deepseek-v4-flash',
-    enabled: true,
-    language: 'auto',
-    usePageContext: true,
-    thinkingEnabled: false,
-    reasoningEffort: 'high',
-    triggerMode: 'auto'
+// ═══════════════════════════════════════════
+// 标签切换
+// ═══════════════════════════════════════════
+
+$tabBtns.forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.tab;
+    $tabBtns.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    $tabPanels.forEach(p => {
+      p.classList.toggle('active', p.id === `panel-${tab}`);
+    });
   });
+});
+
+// ═══════════════════════════════════════════
+// 深度思考开关 → 联动强度选择显隐
+// ═══════════════════════════════════════════
+
+$explainThinking.addEventListener('change', () => {
+  $explainEffortSection.style.display = $explainThinking.checked ? '' : 'none';
+});
+$translateThinking.addEventListener('change', () => {
+  $translateEffortSection.style.display = $translateThinking.checked ? '' : 'none';
+});
+
+// ═══════════════════════════════════════════
+// 加载配置
+// ═══════════════════════════════════════════
+
+(async () => {
+  const defaults = {
+    apiKey: '',
+    // 解释
+    explainModel: 'deepseek-v4-flash',
+    explainThinkingEnabled: false,
+    explainReasoningEffort: 'high',
+    language: 'auto',
+    // 翻译
+    translateModel: 'deepseek-v4-flash',
+    translateThinkingEnabled: false,
+    translateReasoningEffort: 'high',
+    targetLanguage: 'zh',
+    // 通用
+    enabled: true,
+    usePageContext: true,
+    triggerMode: 'auto'
+  };
+
+  let config = await chrome.storage.local.get(defaults);
+
+  // ── 旧版迁移 ──
+  let migrated = false;
+
+  if (config.model !== undefined) {
+    config.explainModel = config.model;
+    config.translateModel = config.model;
+    delete config.model;
+    migrated = true;
+  }
+  if (config.thinkingEnabled !== undefined) {
+    config.explainThinkingEnabled = config.thinkingEnabled;
+    config.translateThinkingEnabled = config.thinkingEnabled;
+    delete config.thinkingEnabled;
+    migrated = true;
+  }
+  if (config.reasoningEffort !== undefined) {
+    config.explainReasoningEffort = config.reasoningEffort;
+    config.translateReasoningEffort = config.reasoningEffort;
+    delete config.reasoningEffort;
+    migrated = true;
+  }
+  if (migrated) {
+    await chrome.storage.local.set(config);
+  }
+
+  // ── 填充 UI ──
+  $explainModel.value = config.explainModel;
+  $explainThinking.checked = config.explainThinkingEnabled === true;
+  $explainEffort.value = config.explainReasoningEffort || 'high';
+  $explainEffortSection.style.display = config.explainThinkingEnabled ? '' : 'none';
+  $explainLanguage.value = config.language || 'auto';
+
+  $translateModel.value = config.translateModel;
+  $translateThinking.checked = config.translateThinkingEnabled === true;
+  $translateEffort.value = config.translateReasoningEffort || 'high';
+  $translateEffortSection.style.display = config.translateThinkingEnabled ? '' : 'none';
+  $targetLanguage.value = config.targetLanguage || 'zh';
 
   $apiKey.value = config.apiKey || '';
-  $model.value = config.model;
-  $language.value = config.language;
   $enabled.checked = config.enabled !== false;
   $useContext.checked = config.usePageContext !== false;
-  $thinkingEnabled.checked = config.thinkingEnabled === true;
-  $reasoningEffort.value = config.reasoningEffort || 'high';
-  $effortSection.style.display = config.thinkingEnabled ? '' : 'none';
   $triggerMode.value = config.triggerMode || 'auto';
 })();
 
-// ── 保存配置 ──
+// ═══════════════════════════════════════════
+// 保存配置
+// ═══════════════════════════════════════════
+
 $saveBtn.addEventListener('click', async () => {
   const apiKey = $apiKey.value.trim();
 
-  // 仅当从未保存过 Key 时才拦截空值（允许修改其他设置时不重输 Key）
   const stored = await chrome.storage.local.get({ apiKey: '' });
   if (!apiKey && !stored.apiKey) {
     showStatus('请输入 DeepSeek API Key', 'error');
@@ -48,52 +137,48 @@ $saveBtn.addEventListener('click', async () => {
   }
 
   const config = {
-    apiKey,
-    model: $model.value,
-    language: $language.value,
+    apiKey: apiKey || stored.apiKey,  // 空输入不覆盖已有 Key
+    // 解释标签
+    explainModel: $explainModel.value,
+    explainThinkingEnabled: $explainThinking.checked,
+    explainReasoningEffort: $explainEffort.value,
+    language: $explainLanguage.value,
+    // 翻译标签
+    translateModel: $translateModel.value,
+    translateThinkingEnabled: $translateThinking.checked,
+    translateReasoningEffort: $translateEffort.value,
+    targetLanguage: $targetLanguage.value,
+    // 通用
     enabled: $enabled.checked,
     usePageContext: $useContext.checked,
-    thinkingEnabled: $thinkingEnabled.checked,
-    reasoningEffort: $reasoningEffort.value,
     triggerMode: $triggerMode.value
   };
 
   try {
     await chrome.storage.local.set(config);
-    showStatus('✅ 设置已保存！现在去任意页面选中文字试试吧', 'success');
+    showStatus('✅ 设置已保存！现在去任意页面试试吧', 'success');
   } catch (err) {
     showStatus('保存失败: ' + err.message, 'error');
   }
 });
 
-// ── 实时切换 ──
+// ═══════════════════════════════════════════
+// 实时保存（通用开关）
+// ═══════════════════════════════════════════
+
 $enabled.addEventListener('change', () => {
   chrome.storage.local.set({ enabled: $enabled.checked });
 });
-
 $useContext.addEventListener('change', () => {
   chrome.storage.local.set({ usePageContext: $useContext.checked });
 });
-
-// ── 思考模式开关 → 联动强度选择显隐 ──
-$thinkingEnabled.addEventListener('change', () => {
-  $effortSection.style.display = $thinkingEnabled.checked ? '' : 'none';
-  chrome.storage.local.set({ thinkingEnabled: $thinkingEnabled.checked });
+$triggerMode.addEventListener('change', () => {
+  chrome.storage.local.set({ triggerMode: $triggerMode.value });
 });
 
-$reasoningEffort.addEventListener('change', () => {
-  chrome.storage.local.set({ reasoningEffort: $reasoningEffort.value });
-});
-
-// ── 模型 / 语言实时保存 ──
-$model.addEventListener('change', () => {
-  chrome.storage.local.set({ model: $model.value });
-});
-
-$language.addEventListener('change', () => {
-  chrome.storage.local.set({ language: $language.value });
-});
-
+// ═══════════════════════════════════════════
+// 工具
+// ═══════════════════════════════════════════
 
 function showStatus(msg, type) {
   $status.textContent = msg;
