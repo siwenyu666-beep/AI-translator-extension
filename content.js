@@ -1,16 +1,58 @@
-// ========== DeepSeek 智能解释 - Content Script ==========
-// 职责：监听文本选择 → 请求解释 → 显示浮动卡片
+// ========== DeepSeek 智能解释 & 翻译 — Content Script ==========
+// 职责：划词检测 → 流式弹窗（解释/翻译共用）、动态菜单联动、全文翻译入口
 
 let tooltip = null;
 let currentText = null;
 let currentExplanation = null;
 let isLoading = false;
 let hideTimer = null;
-let pendingRequest = 0;
+let currentStreamPort = null;
 
-const BLOCK_TAGS = new Set(['P', 'DIV', 'LI', 'TD', 'TH', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION', 'DD', 'DT', 'ASIDE', 'MAIN', 'SUMMARY']);
+// ── 触发模式 ──
+let triggerMode = 'auto';
+let usePageContext = true;
+let selectionDebounce = null;
+let lastContextMenuPos = { x: 0, y: 0 };
+let currentMode = null;  // A/B/C/D
 
-// ── 创建弹窗 DOM（只创建一次） ──
+// ── 扩展上下文有效性检测（重载后旧页面的 runtime 会失效）──
+function isRuntimeAlive() {
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+function safeSendMessage(msg) {
+  if (!isRuntimeAlive()) return Promise.resolve();
+  return chrome.runtime.sendMessage(msg).catch(() => {});
+}
+function safeConnect(name) {
+  if (!isRuntimeAlive()) return null;
+  try { return chrome.runtime.connect({ name }); } catch { return null; }
+}
+
+// ── 本地自动分类（微秒级，无网络开销）──
+function classifyText(text) {
+  const trimmed = text.trim();
+  // 检测非中文字符（拉丁字母、假名、韩文、阿拉伯文等）
+  const hasForeign = /[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\s，。、；：！？…—""''（）【】《》\d]/.test(trimmed);
+  const isPurelyChinese = !hasForeign;
+
+  if (isPurelyChinese) {
+    if (trimmed.length <= 10) return 'C';  // 拓展解释
+    return 'D';                             // 语境解读
+  }
+
+  const words = trimmed.split(/\s+/).filter(w => w.length > 0);
+  if (words.length <= 10) return 'A';       // 翻译+解释
+  return 'B';                                // 纯翻译
+}
+
+function modeLabel(mode) {
+  return { A: '翻译+解释', B: '翻译', C: '拓展解释', D: '语境解读' }[mode] || '智能解释';
+}
+
+// ═══════════════════════════════════════════
+// 弹窗 DOM（只创建一次）
+// ═══════════════════════════════════════════
+
 function getTooltip() {
   if (!tooltip) {
     tooltip = document.createElement('div');
@@ -23,13 +65,13 @@ function getTooltip() {
       <div class="ds-quote"></div>
       <div class="ds-body"></div>
       <div class="ds-actions">
-        <button class="ds-btn ds-btn-copy" title="复制解释内容">
+        <button class="ds-btn ds-btn-copy" title="复制内容">
           <span class="ds-btn-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
           </span>
           <span class="ds-btn-label">复制</span>
         </button>
-        <button class="ds-btn ds-btn-download" title="下载解释内容">
+        <button class="ds-btn ds-btn-download" title="下载内容">
           <span class="ds-btn-icon">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
           </span>
@@ -38,7 +80,6 @@ function getTooltip() {
       </div>
       <div class="ds-footer">
         <span class="ds-model-tag"></span>
-        <span class="ds-download-status"></span>
         <span class="ds-powered">Powered by DeepSeek</span>
       </div>
     `;
@@ -52,7 +93,10 @@ function getTooltip() {
   return tooltip;
 }
 
-// ── 获取选中文本在文档中的坐标 ──
+// ═══════════════════════════════════════════
+// 坐标计算
+// ═══════════════════════════════════════════
+
 function getSelectionDocCoords() {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
@@ -68,12 +112,10 @@ function getSelectionDocCoords() {
   };
 }
 
-// ── 显示/更新弹窗位置（使用文档坐标）──
 function positionTooltip(docCoords) {
   const el = getTooltip();
   el.classList.remove('ds-hidden');
   el.classList.add('ds-visible');
-
   el.style.left = '-9999px';
   el.style.top = '-9999px';
   el.style.display = 'block';
@@ -101,14 +143,12 @@ function positionTooltip(docCoords) {
 
 function hideTooltip() {
   if (!tooltip) return;
+  abortStream();
   tooltip.classList.add('ds-hidden');
   tooltip.classList.remove('ds-visible');
   currentText = null;
   currentExplanation = null;
   isLoading = false;
-  pendingRequest++;
-  const st = tooltip.querySelector('.ds-download-status');
-  if (st) { st.className = 'ds-download-status'; st.textContent = ''; }
 }
 
 function scheduleHide() {
@@ -119,19 +159,113 @@ function scheduleHide() {
   }, 200);
 }
 
-// ── 设置加载状态 ──
-function setLoading(text) {
-  isLoading = true;
-  currentExplanation = null;
-  const el = getTooltip();
-  el.querySelector('.ds-quote').textContent = truncate(text, 80);
-  el.querySelector('.ds-body').innerHTML = '<div class="ds-loading"><span class="ds-spinner"></span>DeepSeek 思考中…</div>';
-  el.querySelector('.ds-model-tag').textContent = '';
-  el.querySelector('.ds-actions').style.display = 'none';
+// ═══════════════════════════════════════════
+// 流式中止
+// ═══════════════════════════════════════════
+
+function abortStream() {
+  if (currentStreamPort) {
+    try { currentStreamPort.disconnect(); } catch {}
+    currentStreamPort = null;
+  }
 }
 
-// ── 清理 Markdown 标记 ──
+// ═══════════════════════════════════════════
+// 统一流式弹窗触发（解释 & 翻译共用）
+// ═══════════════════════════════════════════
+
+async function triggerWithStream({ text, mode, popupTitle }) {
+  if (!text || text.length < 2) return;
+  if (text === currentText && tooltip?.classList.contains('ds-visible')) return;
+
+  // 中止上一个流
+  abortStream();
+  currentText = text;
+  currentMode = mode;
+  isLoading = true;
+  currentExplanation = null;
+
+  const coords = getSelectionDocCoords() || {
+    left: lastContextMenuPos.x,
+    bottom: lastContextMenuPos.y,
+    right: lastContextMenuPos.x,
+    top: lastContextMenuPos.y,
+    viewportLeft: lastContextMenuPos.x - window.scrollX,
+    viewportBottom: lastContextMenuPos.y - window.scrollY
+  };
+
+  const el = getTooltip();
+  el.querySelector('.ds-brand').textContent = popupTitle;
+  el.querySelector('.ds-quote').textContent = truncate(text, 80);
+  el.querySelector('.ds-body').textContent = '';
+  el.querySelector('.ds-body').classList.add('ds-streaming');
+  el.querySelector('.ds-actions').style.display = 'none';
+  el.querySelector('.ds-model-tag').textContent = '';
+
+  positionTooltip(coords);
+
+  // 建立流式连接
+  const port = safeConnect(`stream-${Date.now()}`);
+  if (!port) { isLoading = false; return; }
+  currentStreamPort = port;
+  let buffer = '';
+
+  port.onMessage.addListener((msg) => {
+    if (msg.type === 'token') {
+      buffer += msg.token;
+      const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
+      el.querySelector('.ds-body').textContent = isExplainLike ? cleanMarkdown(buffer) : buffer;
+    } else if (msg.type === 'done') {
+      isLoading = false;
+      const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
+      const display = isExplainLike ? cleanMarkdown(buffer) : buffer;
+      currentExplanation = display;
+      el.querySelector('.ds-body').textContent = display;
+      el.querySelector('.ds-body').classList.remove('ds-streaming');
+      el.querySelector('.ds-actions').style.display = 'flex';
+      el.querySelector('.ds-model-tag').textContent = msg.model || '';
+      // 🆕 模式 B：翻译完成后显示"解释此句"按钮
+      updateExtraActions(mode);
+      port.disconnect();
+      currentStreamPort = null;
+    } else if (msg.type === 'error') {
+      isLoading = false;
+      currentExplanation = null;
+      el.querySelector('.ds-body').classList.remove('ds-streaming');
+      el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
+      el.querySelector('.ds-actions').style.display = 'none';
+      port.disconnect();
+      currentStreamPort = null;
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    currentStreamPort = null;
+    if (isLoading) {
+      isLoading = false;
+      if (!currentExplanation) {
+        el.querySelector('.ds-body').classList.remove('ds-streaming');
+        el.querySelector('.ds-body').textContent = '⚠️ 连接中断，请重试';
+      }
+    }
+  });
+
+  // 发送请求（根据开关决定是否携带上下文）
+  const context = usePageContext ? getPageContext() : null;
+  port.postMessage({
+    type: 'STREAM_REQUEST',
+    mode,
+    text,
+    context
+  });
+}
+
+// ═══════════════════════════════════════════
+// 工具函数
+// ═══════════════════════════════════════════
+
 function cleanMarkdown(text) {
+  if (!text) return '';
   return text
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
@@ -143,301 +277,6 @@ function cleanMarkdown(text) {
     .trim();
 }
 
-// ── 设置解释内容 ──
-function setExplanation(text, explanation, model, cached) {
-  isLoading = false;
-  const cleaned = cleanMarkdown(explanation);
-  currentExplanation = cleaned;
-  const el = getTooltip();
-  el.querySelector('.ds-quote').textContent = truncate(text, 80);
-  el.querySelector('.ds-body').textContent = cleaned;
-  const tag = model ? model.replace('deepseek-v4-', '') : '';
-  el.querySelector('.ds-model-tag').textContent = cached ? (tag + ' · 缓存') : tag;
-  el.querySelector('.ds-actions').style.display = 'flex';
-}
-
-// ── 设置错误 ──
-function setError(text, errMsg) {
-  isLoading = false;
-  currentExplanation = null;
-  const el = getTooltip();
-  el.querySelector('.ds-quote').textContent = truncate(text, 80);
-  el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(errMsg)}</span>`;
-  el.querySelector('.ds-model-tag').textContent = '';
-  el.querySelector('.ds-actions').style.display = 'none';
-}
-
-// ── 复制解释 ──
-async function handleCopy(e) {
-  e.stopPropagation();
-  if (!currentExplanation) return;
-
-  try {
-    await navigator.clipboard.writeText(currentExplanation);
-    const btn = tooltip.querySelector('.ds-btn-copy .ds-btn-label');
-    const original = btn.textContent;
-    btn.textContent = '已复制';
-    btn.style.color = '#16a34a';
-    setTimeout(() => {
-      btn.textContent = original;
-      btn.style.color = '';
-    }, 1500);
-  } catch {
-    // fallback
-    const ta = document.createElement('textarea');
-    ta.value = currentExplanation;
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  }
-}
-
-// ── 下载解释 ──
-async function handleDownload(e) {
-  e.stopPropagation();
-  if (!currentText || !currentExplanation) return;
-
-  const statusEl = getTooltip().querySelector('.ds-download-status');
-
-  try {
-    const now = new Date();
-    const pad = n => String(n).padStart(2, '0');
-    const ts = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const filename = `DeepSeek解释_${ts}.txt`;
-
-    const text = [
-      `DeepSeek 智能解释`,
-      `生成时间: ${now.toLocaleString('zh-CN')}`,
-      `来源页面: ${location.href}`,
-      ``,
-      `── 选中原文 ──`,
-      currentText,
-      ``,
-      `── 解释内容 ──`,
-      currentExplanation,
-      ``,
-    ].join('\n');
-
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-
-    statusEl.textContent = `已下载于 默认下载目录\\${filename}`;
-    statusEl.className = 'ds-download-status ds-status-visible';
-  } catch (err) {
-    statusEl.textContent = `下载失败：${err.message}`;
-    statusEl.className = 'ds-download-status ds-status-visible ds-status-error';
-  }
-}
-
-// ── 提取网页上下文 ──
-function getPageContext() {
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
-
-  const range = sel.getRangeAt(0);
-  const selectedText = sel.toString();
-
-  // 向上查找最近的块级父元素
-  let container = range.commonAncestorContainer;
-  while (container && container !== document.body) {
-    if (container.nodeType === 1 && BLOCK_TAGS.has(container.tagName)) break;
-    container = container.parentElement;
-  }
-  if (!container || container === document.body) {
-    // fallback: 取 body 文本（限制长度）
-    const bodyText = document.body.innerText || '';
-    return {
-      title: document.title,
-      before: bodyText.substring(0, 800),
-      after: ''
-    };
-  }
-
-  const fullText = container.innerText || container.textContent || '';
-  const selIndex = fullText.indexOf(selectedText);
-  if (selIndex === -1) {
-    // 选中文本可能跨元素，用 startContainer 的文本估位置
-    let beforeText = '';
-    if (range.startContainer.nodeType === 3) {
-      const offset = range.startOffset;
-      beforeText = range.startContainer.textContent.substring(0, offset);
-    }
-    return {
-      title: document.title,
-      before: beforeText.slice(-300),
-      after: ''
-    };
-  }
-
-  const before = fullText.substring(Math.max(0, selIndex - 300), selIndex);
-  const afterStart = selIndex + selectedText.length;
-  const after = fullText.substring(afterStart, afterStart + 300);
-
-  return {
-    title: document.title,
-    before: before,
-    after: after
-  };
-}
-
-// ── 缓存 & 配置 ──
-const CACHE = new Map();
-const CACHE_MAX = 50;
-
-async function getConfig() {
-  const defaults = {
-    apiKey: '',
-    model: 'deepseek-v4-flash',
-    enabled: true,
-    language: 'auto',
-    usePageContext: true,
-    thinkingEnabled: false,
-    reasoningEffort: 'high'
-  };
-  return await chrome.storage.local.get(defaults);
-}
-
-// ── 构建 Prompt ──
-function buildPrompt(text, language, context) {
-  const langHint = language === 'auto'
-    ? '请自动检测文本语言：如果是英文，用英文解释；如果是中文，用中文解释；其他语言用中文解释。'
-    : language === 'en'
-      ? '请用英文解释以下内容。'
-      : '请用中文解释以下内容。';
-
-  let contextBlock = '';
-  if (context && (context.before || context.after)) {
-    contextBlock = `\n[网页标题]\n${context.title || '未知'}\n\n[选中文本的上下文]\n...${context.before || ''}[选中文本]${context.after || ''}...\n`;
-  }
-
-  return `你是一个知识渊博、擅于解释的助手。用户选中了一段文本，请结合上下文给出简洁清晰的分点解释。
-${contextBlock}
-[需要解释的文本]
-"""
-${text}
-"""
-
-规则：
-- ${langHint}
-- 用编号列表（1. 2. 3.）分点解释，每点一行
-- 结合上文和下文的语境来理解选中文本的具体含义
-- 如果选中文本在上下文中是专业术语或特定领域的用法，请给出该领域内的解释
-- 不要使用任何 Markdown 格式：不要用 ** 加粗、不要用 * 斜体、不要用反引号、不要用标题符号
-- 如果文本是单词或短语：分点给出释义、词性、用法、例句
-- 如果文本是句子或段落：分点解释含义、背景、关键信息
-- 如果是专业术语：分点给出定义、背景、相关知识
-- 整体控制在 3~5 个要点，每个要点一句话，简洁有力
-- 不要写"这段文字说的是"之类的开场白，直接分点解释`;
-}
-
-// ── 调用 DeepSeek API（直接 fetch，不经过 Service Worker）──
-async function callDeepSeek(apiKey, model, prompt, thinkingEnabled, reasoningEffort) {
-  const controller = new AbortController();
-  const timeoutMs = thinkingEnabled ? 30000 : 15000;
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const body = {
-      model: model,
-      messages: [
-        { role: 'system', content: '你是一个知识渊博、擅于解释的助手。给出简洁清晰的解释，不要重复开场白，直接解释。' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.3,
-      max_tokens: 400,
-      stream: false
-    };
-
-    if (thinkingEnabled) {
-      body.thinking = { type: 'enabled' };
-      body.reasoning_effort = reasoningEffort || 'high';
-    }
-
-    const res = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text();
-      if (res.status === 401) throw new Error('API Key 无效，请检查设置');
-      if (res.status === 402) throw new Error('账户余额不足，请充值');
-      if (res.status === 403) throw new Error('API Key 无权访问，请检查');
-      if (res.status === 429) throw new Error('请求过于频繁，请稍后再试');
-      if (res.status === 400) throw new Error('请求参数有误，请重试');
-      throw new Error(`API 错误 (${res.status}): ${errBody.slice(0, 100)}`);
-    }
-
-    const data = await res.json();
-    const text_result = data?.choices?.[0]?.message?.content;
-    if (!text_result) throw new Error('DeepSeek 未返回有效解释，请重试');
-    return text_result.trim();
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-// ── 请求解释 ──
-async function requestExplanation(text) {
-  const reqId = ++pendingRequest;
-
-  try {
-    const config = await getConfig();
-    if (!config.apiKey) {
-      if (isStale(reqId)) return;
-      setError(text, '请先在扩展弹窗中设置 DeepSeek API Key');
-      return;
-    }
-    if (config.enabled === false) {
-      if (isStale(reqId)) return;
-      setError(text, '扩展已禁用');
-      return;
-    }
-
-    const useContext = config.usePageContext !== false;
-    const context = useContext ? getPageContext() : null;
-    const cacheKey = useContext ? `${config.model}:${location.origin}${location.pathname}:${text}` : `${config.model}:${text}`;
-
-    if (CACHE.has(cacheKey)) {
-      if (isStale(reqId)) return;
-      setExplanation(text, CACHE.get(cacheKey), config.model, true);
-      return;
-    }
-
-    const prompt = buildPrompt(text, config.language, context);
-    const explanation = await callDeepSeek(config.apiKey, config.model, prompt, config.thinkingEnabled, config.reasoningEffort);
-
-    if (isStale(reqId)) return;
-
-    CACHE.set(cacheKey, explanation);
-    if (CACHE.size > CACHE_MAX) {
-      const first = CACHE.keys().next().value;
-      CACHE.delete(first);
-    }
-
-    setExplanation(text, explanation, config.model, false);
-  } catch (err) {
-    if (isStale(reqId)) return;
-    setError(text, err.message || '请求失败，请重试');
-  }
-}
-
-// ── 工具函数 ──
 function truncate(text, max) {
   return text.length > max ? text.slice(0, max) + '…' : text;
 }
@@ -452,122 +291,268 @@ function isInTooltip(node) {
   return tooltip && tooltip.contains(node);
 }
 
-function isStale(reqId) { return reqId !== pendingRequest; }
+// ═══════════════════════════════════════════
+// 网页上下文提取
+// ═══════════════════════════════════════════
 
-// ── 事件监听 ──
-// ── 触发模式与鼠标事件 ──
-let triggerMode = 'auto';
-let debounceTimer = null;
+function getPageContext() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
 
-// ── 异步加载触发模式配置 ──
+  const range = sel.getRangeAt(0);
+  const selectedText = sel.toString();
+
+  const blockTags = new Set(['P', 'DIV', 'LI', 'TD', 'TH', 'SECTION', 'ARTICLE', 'BLOCKQUOTE', 'PRE', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'FIGCAPTION', 'DD', 'DT', 'ASIDE', 'MAIN', 'SUMMARY']);
+  let container = range.commonAncestorContainer;
+  while (container && container !== document.body) {
+    if (container.nodeType === 1 && blockTags.has(container.tagName)) break;
+    container = container.parentElement;
+  }
+  if (!container || container === document.body) {
+    const bodyText = document.body.innerText || '';
+    return { title: document.title, before: bodyText.substring(0, 800), after: '' };
+  }
+
+  const fullText = container.innerText || container.textContent || '';
+  const selIndex = fullText.indexOf(selectedText);
+  if (selIndex === -1) {
+    let beforeText = '';
+    if (range.startContainer.nodeType === 3) {
+      beforeText = range.startContainer.textContent.substring(0, range.startOffset);
+    }
+    return { title: document.title, before: beforeText.slice(-300), after: '' };
+  }
+
+  const before = fullText.substring(Math.max(0, selIndex - 300), selIndex);
+  const afterStart = selIndex + selectedText.length;
+  const after = fullText.substring(afterStart, afterStart + 300);
+
+  return { title: document.title, before, after };
+}
+
+// ═══════════════════════════════════════════
+// 复制 & 下载
+// ═══════════════════════════════════════════
+
+async function handleCopy(e) {
+  e.stopPropagation();
+  if (!currentExplanation) return;
+  try {
+    await navigator.clipboard.writeText(currentExplanation);
+    const btn = tooltip.querySelector('.ds-btn-copy .ds-btn-label');
+    const original = btn.textContent;
+    btn.textContent = '已复制';
+    btn.style.color = '#16a34a';
+    setTimeout(() => { btn.textContent = original; btn.style.color = ''; }, 1500);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = currentExplanation;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function handleDownload(e) {
+  e.stopPropagation();
+  if (!currentText || !currentExplanation) return;
+  safeSendMessage({
+    type: 'DOWNLOAD',
+    text: currentText,
+    explanation: currentExplanation
+  });
+  const btn = tooltip.querySelector('.ds-btn-download .ds-btn-label');
+  const original = btn.textContent;
+  btn.textContent = '已下载';
+  btn.style.color = '#16a34a';
+  setTimeout(() => { btn.textContent = original; btn.style.color = ''; }, 1500);
+}
+
+// 🆕 显示/隐藏 B 类"解释此句"额外按钮
+function updateExtraActions(mode) {
+  // 移除旧额外按钮
+  const oldBtn = tooltip.querySelector('.ds-btn-explain-this');
+  if (oldBtn) oldBtn.remove();
+
+  if (mode !== 'B') return;
+
+  const btn = document.createElement('button');
+  btn.className = 'ds-btn ds-btn-explain-this';
+  btn.title = '结合上下文解释这句话的含义';
+  btn.innerHTML = `
+    <span class="ds-btn-icon">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="9" y1="9" x2="9.01" y2="9"></line><line x1="15" y1="15" x2="15.01" y2="15"></line></svg>
+    </span>
+    <span class="ds-btn-label">解释此句</span>`;
+  btn.addEventListener('click', handleExplainThis);
+  btn.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+  tooltip.querySelector('.ds-actions').appendChild(btn);
+}
+
+async function handleExplainThis(e) {
+  e.stopPropagation();
+  e.preventDefault();
+
+  const btn = e.currentTarget;
+  // 备份当前文本（防止 currentText 在异步期间被清空）
+  const textToExplain = currentText;
+  if (!textToExplain) {
+    btn.querySelector('.ds-btn-label').textContent = '无文本';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.querySelector('.ds-btn-label').textContent = '解释中…';
+
+  // 三道防线防止卡片关闭
+  clearTimeout(hideTimer);
+  abortStream();
+  isLoading = true;
+
+  // 确保 tooltip 可见
+  const el = getTooltip();
+  el.classList.add('ds-visible');
+  el.classList.remove('ds-hidden');
+  el.style.display = 'block';
+
+  const port = safeConnect(`stream-${Date.now()}`);
+  if (!port) {
+    isLoading = false;
+    btn.disabled = false;
+    btn.querySelector('.ds-btn-label').textContent = '重试';
+    return;
+  }
+  currentStreamPort = port;
+
+  el.querySelector('.ds-body').textContent = '';
+  el.querySelector('.ds-body').classList.add('ds-streaming');
+  let buffer = '';
+
+  const cleanup = () => {
+    isLoading = false;
+    el.querySelector('.ds-body').classList.remove('ds-streaming');
+    btn.remove();
+    currentStreamPort = null;
+    try { port.disconnect(); } catch {}
+  };
+
+  port.onMessage.addListener((msg) => {
+    if (msg.type === 'token') {
+      buffer += msg.token;
+      el.querySelector('.ds-body').textContent = cleanMarkdown(buffer);
+    } else if (msg.type === 'done') {
+      currentExplanation = cleanMarkdown(buffer);
+      el.querySelector('.ds-body').textContent = currentExplanation;
+      cleanup();
+    } else if (msg.type === 'error') {
+      el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
+      cleanup();
+    }
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (isLoading) {
+      if (!el.querySelector('.ds-body').textContent) {
+        el.querySelector('.ds-body').textContent = '⚠️ 连接中断';
+      }
+      cleanup();
+    }
+  });
+
+  port.postMessage({
+    type: 'STREAM_REQUEST',
+    mode: 'D',
+    text: textToExplain,
+    context: usePageContext ? getPageContext() : null
+  });
+}
+
+// ═══════════════════════════════════════════
+// 事件监听：触发模式
+// ═══════════════════════════════════════════
+
 (async function initTriggerMode() {
   try {
-    const stored = await chrome.storage.local.get({ triggerMode: 'auto' });
+    const stored = await chrome.storage.local.get({ triggerMode: 'auto', usePageContext: true });
     triggerMode = stored.triggerMode || 'auto';
-  } catch { /* storage 不可用时保持默认值 */ }
+    usePageContext = stored.usePageContext !== false;
+  } catch {}
 })();
 
-// ── 监听配置变更，实时切换触发模式 ──
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.triggerMode) {
     triggerMode = changes.triggerMode.newValue || 'auto';
   }
+  if (changes.usePageContext) {
+    usePageContext = changes.usePageContext.newValue !== false;
+  }
 });
 
-// ── 记录右键点击位置（作为弹窗定位 fallback）──
-let lastContextMenuPos = { x: 0, y: 0 };
-
+// ── 右键点击位置记录 ──
 document.addEventListener('contextmenu', (e) => {
   lastContextMenuPos.x = e.clientX + window.scrollX;
   lastContextMenuPos.y = e.clientY + window.scrollY;
 });
 
-// ── mouseup 自动触发（仅在 auto 模式下生效）──
+// ── mouseup 自动触发（auto 模式：分类 → 智能解释）──
 document.addEventListener('mouseup', (e) => {
   if (isInTooltip(e.target)) return;
   if (triggerMode !== 'auto') return;
 
-  clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(() => {
+  clearTimeout(selectionDebounce);
+  selectionDebounce = setTimeout(() => {
     const sel = window.getSelection();
     const text = sel.toString().trim();
     if (!text || text.length < 2) {
       if (!isLoading) hideTooltip();
       return;
     }
-    if (text === currentText && tooltip && tooltip.classList.contains('ds-visible')) return;
-    triggerExplanation(text);
+    if (text === currentText && tooltip?.classList.contains('ds-visible')) return;
+
+    const mode = classifyText(text);
+    triggerWithStream({ text, mode, popupTitle: `DeepSeek ${modeLabel(mode)}` });
   }, 150);
 });
 
-// ── 接收来自右键菜单的触发消息 ──
+// ── 接收来自 background（右键菜单）的消息 ──
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'TRIGGER_EXPLAIN' && message.text) {
-    triggerExplanation(message.text);
+    const mode = classifyText(message.text);
+    triggerWithStream({ text: message.text, mode, popupTitle: `DeepSeek ${modeLabel(mode)}` });
+  }
+  if (message.type === 'TRIGGER_FULLPAGE_TRANSLATE') {
+    safeSendMessage({ type: 'INJECT_FULLPAGE_TRANSLATE' });
   }
 });
 
-// ── 由右键菜单触发的解释流程 ──
-function triggerExplanation(text) {
-  if (!text || text.length < 2) return;
-
-  if (text === currentText && tooltip && tooltip.classList.contains('ds-visible')) return;
-
-  currentText = text;
-
-  // 优先用当前 selection 坐标，获取不到则用右键点击位置
-  let coords = getSelectionDocCoords();
-  if (!coords) {
-    coords = {
-      left: lastContextMenuPos.x,
-      bottom: lastContextMenuPos.y,
-      right: lastContextMenuPos.x,
-      top: lastContextMenuPos.y,
-      viewportLeft: lastContextMenuPos.x - window.scrollX,
-      viewportBottom: lastContextMenuPos.y - window.scrollY
-    };
-  }
-
-  setLoading(text);
-  positionTooltip(coords);
-  requestExplanation(text);
-}
-
+// ── 点击弹窗外部关闭 ──
 document.addEventListener('mousedown', (e) => {
-  if (tooltip && tooltip.classList.contains('ds-visible') && !isInTooltip(e.target)) {
+  if (tooltip?.classList.contains('ds-visible') && !isInTooltip(e.target)) {
     hideTooltip();
   }
 });
 
 document.addEventListener('selectionchange', () => {
-  if (!tooltip || !tooltip.classList.contains('ds-visible')) return;
-
+  if (!tooltip?.classList.contains('ds-visible')) return;
   const sel = window.getSelection();
-  if (sel.isCollapsed && !isLoading) {
-    scheduleHide();
-  }
+  if (sel.isCollapsed && !isLoading) scheduleHide();
 });
 
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && tooltip && tooltip.classList.contains('ds-visible')) {
+  if (e.key === 'Escape' && tooltip?.classList.contains('ds-visible')) {
     hideTooltip();
   }
 });
 
 window.addEventListener('scroll', () => {
-  if (!tooltip || !tooltip.classList.contains('ds-visible')) return;
+  if (!tooltip?.classList.contains('ds-visible')) return;
   if (isLoading) return;
-
   const sel = window.getSelection();
-  if (sel.isCollapsed) {
-    hideTooltip();
-    return;
-  }
-
+  if (!sel || sel.isCollapsed) { hideTooltip(); return; }
   const coords = getSelectionDocCoords();
-  if (coords) {
-    positionTooltip(coords);
-  } else {
-    hideTooltip();
-  }
+  if (coords) positionTooltip(coords);
+  else hideTooltip();
 }, { passive: true });
