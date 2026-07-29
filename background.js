@@ -102,13 +102,13 @@ chrome.runtime.onConnect.addListener((port) => {
 
 async function handleStreamRequest(port, { promptType, text, context, batchId, mode }) {
   const config = await getConfig();
-  if (!config.apiKey) {
-    port.postMessage({ type: 'error', error: '请先设置 API Key', batchId });
+  if (config.enabled === false) {
+    port.postMessage({ type: 'error', error: '扩展已禁用', batchId });
     port.disconnect();
     return;
   }
-  if (config.enabled === false) {
-    port.postMessage({ type: 'error', error: '扩展已禁用', batchId });
+  if (!config.apiKey && !config.qwenApiKey) {
+    port.postMessage({ type: 'error', error: '请先设置 API Key', batchId });
     port.disconnect();
     return;
   }
@@ -154,6 +154,16 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
     prompt = buildTranslatePrompt(text, config.targetLanguage || 'zh', context);
   }
 
+  // ── 供应商判断 & Key 验证 ──
+  const provider = getProvider(model);
+  const apiKey = provider === 'qwen' ? config.qwenApiKey : config.apiKey;
+  if (!apiKey) {
+    const name = provider === 'qwen' ? '千问' : 'DeepSeek';
+    port.postMessage({ type: 'error', error: `请先设置${name} API Key`, batchId });
+    port.disconnect();
+    return;
+  }
+
   // 缓存检查
   const modeKey = mode || promptType;
   const langKey = (mode && (mode === 'A' || mode === 'B')) ? (config.targetLanguage || 'zh') : config.language;
@@ -191,11 +201,16 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
       body.reasoning_effort = reasoningEffort;
     }
 
-    const res = await fetch('https://api.deepseek.com/chat/completions', {
+    // 根据供应商选择端点
+    const endpoint = provider === 'qwen'
+      ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+      : 'https://api.deepseek.com/chat/completions';
+
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`
+        'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify(body),
       signal: controller.signal
@@ -407,6 +422,7 @@ function getMaxTokens(mode, promptType) {
 async function getConfig() {
   const defaults = {
     apiKey: '',
+    qwenApiKey: '',
     // 解释标签
     explainModel: 'deepseek-v4-flash',
     explainThinkingEnabled: false,
@@ -473,6 +489,10 @@ async function parseApiError(res) {
 // ═══════════════════════════════════════════
 // 工具函数
 // ═══════════════════════════════════════════
+
+function getProvider(model) {
+  return model && model.startsWith('qwen') ? 'qwen' : 'deepseek';
+}
 
 function splitIntoChunks(text, count) {
   if (!text || count <= 1) return [text || ''];

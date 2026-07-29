@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek 智能解释 & 翻译",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "选中文本智能解释/翻译，全文覆盖翻译。解释与翻译独立模型配置，全部流式输出。",
   "permissions": ["storage", "downloads", "contextMenus", "scripting"],
   "host_permissions": [
     "<all_urls>",
-    "https://api.deepseek.com/*"
+    "https://api.deepseek.com/*",
+    "https://dashscope.aliyuncs.com/*"
   ],
   "background": {
     "service_worker": "background.js"

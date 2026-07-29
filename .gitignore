@@ -1,2 +1,15 @@
-*
-!.gitignore
+# 压缩包
+*.zip
+*.rar
+*.7z
+
+# 依赖
+node_modules/
+
+# IDE
+.idea/
+.vscode/
+
+# 系统
+.DS_Store
+Thumbs.db

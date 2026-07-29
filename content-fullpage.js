@@ -65,7 +65,7 @@
   const BLOCK_SELECTOR = [
     'p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'figcaption', 'dd', 'dt', 'legend', 'summary', 'blockquote',
-    'label', 'button', 'a', 'span', 'div', 'section', 'article',
+    'div', 'section', 'article',
     'header', 'footer', 'nav', 'aside', 'main', 'caption',
     'option', 'optgroup', 'title'
   ].join(',');
@@ -198,7 +198,7 @@
 
   // 检测元素是否包含不可丢失的子元素（图片、链接等）
   function hasFragileChildren(el) {
-    const fragile = el.querySelectorAll('img, a, iframe, video, audio, canvas, svg, input, button, select, textarea, picture, source, object, embed');
+    const fragile = el.querySelectorAll('img, iframe, video, audio, canvas, svg, input, button, select, textarea, picture, source, object, embed');
     return fragile.length > 0;
   }
 

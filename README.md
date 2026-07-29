@@ -8,6 +8,7 @@
 
 - Edge 浏览器（Chrome 亦可）
 - DeepSeek API Key（[点击获取](https://platform.deepseek.com/api_keys)）
+- 千问 API Key（可选，[点击获取](https://platform.qianwenai.com/home/api-keys)）—— 如需使用 Qwen3.7-Flash 模型
 
 ## 功能
 
@@ -28,8 +29,8 @@
 - **网页上下文**：自动提取选中文本所在段落的上下文，让结果更准确（可选开关）
 - **流式输出**：所有解释/翻译结果逐 token 打字机式呈现，即时反馈
 - **一键复制 / 下载**：将内容写入剪贴板或保存为 TXT 文件
-- **多模型**：支持 DeepSeek-V4-Flash 和 DeepSeek-V4-Pro
-- **深度思考**：可选开启思考模式，支持高/最高两档思考强度
+- **多模型**：支持 DeepSeek-V4-Flash、DeepSeek-V4-Pro、千问 Qwen3.7-Flash
+- **深度思考**：可选开启思考模式，支持高/最高两档思考强度（仅 DeepSeek V4-Pro）
 
 ### 全文翻译（右键空白处）
 
@@ -42,9 +43,9 @@
 
 ### 双标签独立配置
 
-设置面板分为「📖 解释」和「🌐 全文翻译」两个标签，**各自拥有独立的模型、深度思考开关和思考强度**。
+设置面板分为「📖 解释」和「🌐 全文翻译」两个标签，**各自拥有独立的模型选择**（可在 DeepSeek 和千问之间切换）、深度思考开关和思考强度。
 
-比如：解释用 V4-Pro（深度推理），全文翻译用 V4-Flash（快速响应）。互不干扰。
+比如：解释用 DeepSeek V4-Pro（深度推理），全文翻译用千问 Qwen3.7-Flash（高性价比）。跨供应商混搭，互不干扰。
 
 ## 安装
 
@@ -57,7 +58,9 @@ git clone https://github.com/siwenyu666-beep/siwenyudecangku.git
 1. 打开 Edge，地址栏输入 `edge://extensions`（或在扩展图标中点击"管理扩展"）
 2. 开启左侧「开发人员模式」
 3. 点击「加载解压缩的扩展」，选择克隆后的文件夹
-4. 点击工具栏扩展图标，在「解释」或「全文翻译」标签中填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
+4. 点击工具栏扩展图标，在「解释」或「全文翻译」标签中选择模型，填入对应的 API Key：
+   - DeepSeek 模型 → 需填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
+   - 千问模型 → 需填入千问 API Key（[获取地址](https://platform.qianwenai.com/home/api-keys)）
 5. 去任意网页选中文字右键，或右键空白处，即可使用
 
 ## 使用技巧
@@ -74,7 +77,7 @@ git clone https://github.com/siwenyu666-beep/siwenyudecangku.git
 - Manifest V3
 - Service Worker（流式 API 代理 + SSE 解析）
 - Content Script（划词检测 + 四分类自动分发 + 流式渲染 + 全文 DOM 覆盖翻译）
-- DeepSeek Chat Completions API（stream: true）
+- DeepSeek Chat Completions API / 千问 DashScope OpenAI 兼容 API（stream: true）
 
 ## 许可证
 

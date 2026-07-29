@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="container">
-  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.1.0</span></h1>
+  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.2.0</span></h1>
 
   <!-- ═══ 标签切换 ═══ -->
   <div class="tab-bar">
@@ -21,8 +21,13 @@
     <div class="section">
       <label class="label" for="explain-model">模型</label>
       <select id="explain-model" class="select">
-        <option value="deepseek-v4-flash">DeepSeek-V4-Flash（推荐 · 快速准确）</option>
-        <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
+        <optgroup label="DeepSeek">
+          <option value="deepseek-v4-flash">V4-Flash（推荐 · 快速准确）</option>
+          <option value="deepseek-v4-pro">V4-Pro（深度推理）</option>
+        </optgroup>
+        <optgroup label="千问">
+          <option value="qwen3.7-flash">Qwen3.7-Flash（高性价比）</option>
+        </optgroup>
       </select>
     </div>
 
@@ -57,8 +62,13 @@
     <div class="section">
       <label class="label" for="translate-model">模型</label>
       <select id="translate-model" class="select">
-        <option value="deepseek-v4-flash">DeepSeek-V4-Flash（推荐 · 快速准确）</option>
-        <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
+        <optgroup label="DeepSeek">
+          <option value="deepseek-v4-flash">V4-Flash（推荐 · 快速准确）</option>
+          <option value="deepseek-v4-pro">V4-Pro（深度推理）</option>
+        </optgroup>
+        <optgroup label="千问">
+          <option value="qwen3.7-flash">Qwen3.7-Flash（高性价比）</option>
+        </optgroup>
       </select>
     </div>
 
@@ -102,6 +112,12 @@
     <label class="label" for="api-key">DeepSeek API Key</label>
     <input type="password" id="api-key" class="input" placeholder="sk-...">
     <a class="link" href="https://platform.deepseek.com/api_keys" target="_blank">前往 DeepSeek 开放平台获取 Key →</a>
+  </div>
+
+  <div class="section">
+    <label class="label" for="qwen-api-key">千问 API Key</label>
+    <input type="password" id="qwen-api-key" class="input" placeholder="sk-...">
+    <a class="link" href="https://platform.qianwenai.com/home/api-keys" target="_blank">前往千问 AI 平台获取 Key →</a>
   </div>
 
   <div class="section">

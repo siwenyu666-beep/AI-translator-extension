@@ -22,6 +22,7 @@ const $targetLanguage = document.getElementById('target-language');
 
 // 通用
 const $apiKey = document.getElementById('api-key');
+const $qwenApiKey = document.getElementById('qwen-api-key');
 const $enabled = document.getElementById('enabled');
 const $useContext = document.getElementById('use-context');
 const $triggerMode = document.getElementById('trigger-mode');
@@ -48,10 +49,25 @@ $tabBtns.forEach(btn => {
 // ═══════════════════════════════════════════
 
 $explainThinking.addEventListener('change', () => {
-  $explainEffortSection.style.display = $explainThinking.checked ? '' : 'none';
+  $explainEffortSection.style.display = $explainThinking.checked && !$explainModel.value.startsWith('qwen') ? '' : 'none';
 });
 $translateThinking.addEventListener('change', () => {
-  $translateEffortSection.style.display = $translateThinking.checked ? '' : 'none';
+  $translateEffortSection.style.display = $translateThinking.checked && !$translateModel.value.startsWith('qwen') ? '' : 'none';
+});
+
+// ── 模型切换 → 千问自动隐藏思考选项 ──
+function onModelChange($model, $thinking, $effortSection) {
+  const isQwen = $model.value.startsWith('qwen');
+  if (isQwen) {
+    $thinking.checked = false;
+    $effortSection.style.display = 'none';
+  }
+}
+$explainModel.addEventListener('change', () => {
+  onModelChange($explainModel, $explainThinking, $explainEffortSection);
+});
+$translateModel.addEventListener('change', () => {
+  onModelChange($translateModel, $translateThinking, $translateEffortSection);
 });
 
 // ═══════════════════════════════════════════
@@ -61,6 +77,7 @@ $translateThinking.addEventListener('change', () => {
 (async () => {
   const defaults = {
     apiKey: '',
+    qwenApiKey: '',
     // 解释
     explainModel: 'deepseek-v4-flash',
     explainThinkingEnabled: false,
@@ -108,16 +125,17 @@ $translateThinking.addEventListener('change', () => {
   $explainModel.value = config.explainModel;
   $explainThinking.checked = config.explainThinkingEnabled === true;
   $explainEffort.value = config.explainReasoningEffort || 'high';
-  $explainEffortSection.style.display = config.explainThinkingEnabled ? '' : 'none';
+  $explainEffortSection.style.display = config.explainThinkingEnabled && !config.explainModel.startsWith('qwen') ? '' : 'none';
   $explainLanguage.value = config.language || 'auto';
 
   $translateModel.value = config.translateModel;
   $translateThinking.checked = config.translateThinkingEnabled === true;
   $translateEffort.value = config.translateReasoningEffort || 'high';
-  $translateEffortSection.style.display = config.translateThinkingEnabled ? '' : 'none';
+  $translateEffortSection.style.display = config.translateThinkingEnabled && !config.translateModel.startsWith('qwen') ? '' : 'none';
   $targetLanguage.value = config.targetLanguage || 'zh';
 
   $apiKey.value = config.apiKey || '';
+  $qwenApiKey.value = config.qwenApiKey || '';
   $enabled.checked = config.enabled !== false;
   $useContext.checked = config.usePageContext !== false;
   $triggerMode.value = config.triggerMode || 'auto';
@@ -129,15 +147,17 @@ $translateThinking.addEventListener('change', () => {
 
 $saveBtn.addEventListener('click', async () => {
   const apiKey = $apiKey.value.trim();
+  const qwenApiKey = $qwenApiKey.value.trim();
 
-  const stored = await chrome.storage.local.get({ apiKey: '' });
-  if (!apiKey && !stored.apiKey) {
-    showStatus('请输入 DeepSeek API Key', 'error');
+  const stored = await chrome.storage.local.get({ apiKey: '', qwenApiKey: '' });
+  if (!apiKey && !stored.apiKey && !qwenApiKey && !stored.qwenApiKey) {
+    showStatus('请至少设置一个 API Key（DeepSeek 或 千问）', 'error');
     return;
   }
 
   const config = {
-    apiKey: apiKey || stored.apiKey,  // 空输入不覆盖已有 Key
+    apiKey: apiKey || stored.apiKey,
+    qwenApiKey: qwenApiKey || stored.qwenApiKey,
     // 解释标签
     explainModel: $explainModel.value,
     explainThinkingEnabled: $explainThinking.checked,
