@@ -1,100 +1,139 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DeepSeek 智能解释</title>
-  <link rel="stylesheet" href="popup.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DeepSeek 智能解释 & 翻译</title>
+<link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="container">
-    <div class="logo">
-      <span class="logo-text">DeepSeek 智能解释</span>
-      <span class="version-tag">v2.1.6</span>
-    </div>
+<div class="container">
+  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.1.0</span></h1>
 
-    <div class="section">
-      <label class="label" for="api-key">DeepSeek API Key</label>
-      <input
-        type="password"
-        id="api-key"
-        placeholder="粘贴你的 DeepSeek API Key…"
-        autocomplete="off"
-      />
-      <div class="hint">
-        <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener">
-          前往 DeepSeek 开放平台获取 Key →
-        </a>
-      </div>
-    </div>
+  <!-- ═══ 标签切换 ═══ -->
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="explain">📖 解释</button>
+    <button class="tab-btn" data-tab="translate">🌐 全文翻译</button>
+  </div>
 
+  <!-- ═══ 解释标签设置 ═══ -->
+  <div class="tab-panel active" id="panel-explain">
     <div class="section">
-      <label class="label" for="model">模型</label>
-      <select id="model">
+      <label class="label" for="explain-model">模型</label>
+      <select id="explain-model" class="select">
         <option value="deepseek-v4-flash">DeepSeek-V4-Flash（推荐 · 快速准确）</option>
         <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
       </select>
     </div>
 
     <div class="section">
-      <label class="label" for="language">解释语言偏好</label>
-      <select id="language">
-        <option value="auto">自动检测（推荐）</option>
-        <option value="zh">始终用中文</option>
-        <option value="en">始终用英文</option>
-      </select>
-    </div>
-
-    <div class="section toggle-row">
-      <label class="label" for="thinking-enabled">深度思考模式</label>
-      <label class="switch">
-        <input type="checkbox" id="thinking-enabled" />
-        <span class="slider"></span>
+      <label class="toggle-label">
+        <input type="checkbox" id="explain-thinking">
+        <span class="toggle-text">深度思考模式</span>
       </label>
+      <p class="hint">仅 V4-Pro 支持。开启后解释更深入但耗时更长。</p>
     </div>
 
-    <div class="section" id="effort-section">
-      <label class="label" for="reasoning-effort">思考强度</label>
-      <select id="reasoning-effort">
+    <div class="section" id="explain-effort-section" style="display:none">
+      <label class="label" for="explain-effort">思考强度</label>
+      <select id="explain-effort" class="select">
         <option value="high">高（推荐）</option>
         <option value="max">最高</option>
       </select>
     </div>
 
-    <div class="section toggle-row">
-      <label class="label" for="enabled">启用扩展</label>
-      <label class="switch">
-        <input type="checkbox" id="enabled" checked />
-        <span class="slider"></span>
-      </label>
-    </div>
-
-    <div class="section toggle-row">
-      <label class="label" for="use-context">结合网页上下文</label>
-      <label class="switch">
-        <input type="checkbox" id="use-context" checked />
-        <span class="slider"></span>
-      </label>
-    </div>
-
     <div class="section">
-      <label class="label" for="trigger-mode">触发方式</label>
-      <select id="trigger-mode">
-        <option value="auto">选中自动搜索（推荐）</option>
-        <option value="contextmenu">右键菜单搜索</option>
+      <label class="label" for="explain-language">解释语言偏好</label>
+      <select id="explain-language" class="select">
+        <option value="auto">自动检测（推荐）</option>
+        <option value="zh">始终用中文</option>
+        <option value="en">始终用英文</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- ═══ 翻译标签设置 ═══ -->
+  <div class="tab-panel" id="panel-translate">
+    <div class="section">
+      <label class="label" for="translate-model">模型</label>
+      <select id="translate-model" class="select">
+        <option value="deepseek-v4-flash">DeepSeek-V4-Flash（推荐 · 快速准确）</option>
+        <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
       </select>
     </div>
 
-    <div class="hint-download">
-      📥 下载位置：浏览器默认下载目录
+    <div class="section">
+      <label class="toggle-label">
+        <input type="checkbox" id="translate-thinking">
+        <span class="toggle-text">深度思考模式</span>
+      </label>
+      <p class="hint">仅 V4-Pro 支持。开启后翻译更精准但耗时更长。</p>
     </div>
 
-    <div class="actions">
-      <button id="save-btn" class="btn-primary">💾 保存设置</button>
+    <div class="section" id="translate-effort-section" style="display:none">
+      <label class="label" for="translate-effort">思考强度</label>
+      <select id="translate-effort" class="select">
+        <option value="high">高（推荐）</option>
+        <option value="max">最高</option>
+      </select>
     </div>
 
-    <div id="status" class="status"></div>
+    <div class="section">
+      <label class="label" for="target-language">翻译目标语言</label>
+      <select id="target-language" class="select">
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+        <option value="ko">한국어</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="es">Español</option>
+        <option value="pt">Português</option>
+        <option value="ru">Русский</option>
+        <option value="ar">العربية</option>
+      </select>
+    </div>
   </div>
-  <script src="popup.js"></script>
+
+  <!-- ═══ 通用设置 ═══ -->
+  <div class="divider">通用设置</div>
+
+  <div class="section">
+    <label class="label" for="api-key">DeepSeek API Key</label>
+    <input type="password" id="api-key" class="input" placeholder="sk-...">
+    <a class="link" href="https://platform.deepseek.com/api_keys" target="_blank">前往 DeepSeek 开放平台获取 Key →</a>
+  </div>
+
+  <div class="section">
+    <label class="toggle-label">
+      <input type="checkbox" id="enabled" checked>
+      <span class="toggle-text">启用扩展</span>
+    </label>
+  </div>
+
+  <div class="section">
+    <label class="toggle-label">
+      <input type="checkbox" id="use-context" checked>
+      <span class="toggle-text">结合网页上下文</span>
+    </label>
+  </div>
+
+  <div class="section">
+    <label class="label" for="trigger-mode">触发方式</label>
+    <select id="trigger-mode" class="select">
+      <option value="auto">选中自动搜索（推荐）</option>
+      <option value="contextMenu">右键菜单搜索</option>
+    </select>
+  </div>
+
+  <div class="section">
+    <p class="download-hint">📥 下载位置：浏览器默认下载目录</p>
+  </div>
+
+  <button id="save-btn" class="save-btn">💾 保存设置</button>
+  <div id="status" class="status"></div>
+</div>
+
+<script src="popup.js"></script>
 </body>
 </html>
