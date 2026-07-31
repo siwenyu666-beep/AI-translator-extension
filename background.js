@@ -9,15 +9,18 @@ const CACHE_MAX = 100;
 // ═══════════════════════════════════════════
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({
-    id: 'deepseek-explain',
-    title: '📖 智能解释',
-    contexts: ['selection']
-  });
-  chrome.contextMenus.create({
-    id: 'deepseek-fullpage',
-    title: '🌐 全文翻译',
-    contexts: ['page']
+  // 先清除旧菜单再重建，避免扩展更新/浏览器升级时重复 create 同 id 报错
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: 'deepseek-explain',
+      title: '📖 智能解释',
+      contexts: ['selection']
+    });
+    chrome.contextMenus.create({
+      id: 'deepseek-fullpage',
+      title: '🌐 全文翻译',
+      contexts: ['page']
+    });
   });
 });
 
@@ -164,18 +167,26 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
     return;
   }
 
-  // 缓存检查
+  // 缓存检查（键包含思考开关，避免开关切换后命中旧缓存）
   const modeKey = mode || promptType;
   const langKey = (mode && (mode === 'A' || mode === 'B')) ? (config.targetLanguage || 'zh') : config.language;
   const ctxFingerprint = context ? hashString(context.title + (context.before || '') + (context.after || '')) : 'noctx';
-  const cacheKey = `${modeKey}:${model}:${langKey}:${ctxFingerprint}:${text}`;
+  const thinkingFlag = thinkingEnabled ? 't1' : 't0';
+  const effortFlag = thinkingEnabled ? (reasoningEffort || 'default') : 'n';
+  const cacheKey = `${modeKey}:${model}:${langKey}:${thinkingFlag}:${effortFlag}:${ctxFingerprint}:${text}`;
   if (CACHE.has(cacheKey)) {
     // 模拟流式：分 chunk 发送缓存结果
     const cached = CACHE.get(cacheKey);
     const chunks = splitIntoChunks(cached, 3);
     for (const chunk of chunks) {
-      port.postMessage({ type: 'token', token: chunk, batchId });
-      await sleep(30);
+      // 端口可能已被页面断开（用户关闭弹窗），发送失败即中止
+      try {
+        port.postMessage({ type: 'token', token: chunk, batchId });
+        await sleep(30);
+      } catch {
+        port.disconnect();
+        return;
+      }
     }
     port.postMessage({ type: 'done', model: model.replace('deepseek-', ''), batchId });
     port.disconnect();
@@ -186,6 +197,10 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
   port.onDisconnect.addListener(() => controller.abort());
 
   try {
+    let maxTokens = getMaxTokens(mode, promptType);
+    if (thinkingEnabled && provider === 'deepseek') {
+      maxTokens *= 3; // 思考模式的推理 token 计入输出上限，需放大防止回答被截断
+    }
     const body = {
       model: model,
       messages: [
@@ -193,12 +208,18 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
         { role: 'user', content: prompt }
       ],
       temperature: (mode === 'B' || promptType === 'translate') ? 0.1 : 0.3,
-      max_tokens: getMaxTokens(mode, promptType),
+      max_tokens: maxTokens,
       stream: true
     };
 
-    if (thinkingEnabled && model === 'deepseek-v4-pro') {
-      body.reasoning_effort = reasoningEffort;
+    if (provider === 'deepseek') {
+      // DeepSeek V4 思考模式默认开启，必须显式控制开关，否则 UI 开关形同虚设
+      body.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
+      if (thinkingEnabled) {
+        body.reasoning_effort = reasoningEffort;
+        // 思考模式下 temperature 是无效参数（官方文档），省略
+        delete body.temperature;
+      }
     }
 
     // 根据供应商选择端点
@@ -262,7 +283,23 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
       }
     }
 
-    // 流结束但没收到 [DONE]
+    // 流结束但没收到 [DONE]：flush 解码器残余字节
+    buffer += decoder.decode();
+    for (const line of buffer.split('\n')) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice(6).trim();
+      if (data === '[DONE]') break;
+      try {
+        const parsed = JSON.parse(data);
+        const token = parsed?.choices?.[0]?.delta?.content;
+        if (token) {
+          fullText += token;
+          port.postMessage({ type: 'token', token, batchId });
+        }
+      } catch { /* skip malformed */ }
+    }
+
+    // 缓存完整结果
     if (fullText.length > 10) {
       CACHE.set(cacheKey, fullText);
       if (CACHE.size > CACHE_MAX) {
@@ -419,7 +456,16 @@ function getMaxTokens(mode, promptType) {
 // 配置读取
 // ═══════════════════════════════════════════
 
+// 会话级配置缓存：避免全文翻译高并发时每个请求都读 storage
+let configCache = null;
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local') configCache = null;
+});
+
 async function getConfig() {
+  if (configCache) return configCache;
+
   const defaults = {
     apiKey: '',
     qwenApiKey: '',
@@ -463,8 +509,11 @@ async function getConfig() {
   }
   if (migrated) {
     await chrome.storage.local.set(stored);
+    // 删除旧版遗留键，避免每次缓存失效都重跑迁移
+    await chrome.storage.local.remove(['model', 'thinkingEnabled', 'reasoningEffort']);
   }
 
+  configCache = stored;
   return stored;
 }
 
@@ -553,5 +602,5 @@ function handleDownload(selectedText, explanation) {
     url: dataUrl,
     filename: filename,
     saveAs: false
-  });
+  }).catch(() => {});
 }

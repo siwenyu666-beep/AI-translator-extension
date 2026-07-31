@@ -7,13 +7,13 @@ let currentExplanation = null;
 let isLoading = false;
 let hideTimer = null;
 let currentStreamPort = null;
+let scrollRaf = null;
 
 // ── 触发模式 ──
 let triggerMode = 'auto';
 let usePageContext = true;
 let selectionDebounce = null;
 let lastContextMenuPos = { x: 0, y: 0 };
-let currentMode = null;  // A/B/C/D
 
 // ── 扩展上下文有效性检测（重载后旧页面的 runtime 会失效）──
 function isRuntimeAlive() {
@@ -31,8 +31,10 @@ function safeConnect(name) {
 // ── 本地自动分类（微秒级，无网络开销）──
 function classifyText(text) {
   const trimmed = text.trim();
+  // 剥离数字与常见半角标点，避免“3.5 元”“2024-2025”等中文文本被误判为外语
+  const cleaned = trimmed.replace(/[\d.,%+\-():;/'"$?!&@#=*_\[\]{}|\\^~<>]/g, '');
   // 检测非中文字符（拉丁字母、假名、韩文、阿拉伯文等）
-  const hasForeign = /[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\s，。、；：！？…—""''（）【】《》\d]/.test(trimmed);
+  const hasForeign = /[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef\u2013\u00b7\s，。、；：！？…—""''（）【】《》]/.test(cleaned);
   const isPurelyChinese = !hasForeign;
 
   if (isPurelyChinese) {
@@ -152,7 +154,8 @@ function hideTooltip() {
 }
 
 function scheduleHide() {
-  clearTimeout(hideTimer);
+  clearTimeout(hideTimer); // 先清残留定时器，再判断是否调度（isLoading 时也清，避免残余窗口）
+  if (isLoading) return; // 流式生成中不因鼠标移出/选区折叠而隐藏，避免弹窗生成一半消失
   hideTimer = setTimeout(() => {
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed) hideTooltip();
@@ -176,12 +179,11 @@ function abortStream() {
 
 async function triggerWithStream({ text, mode, popupTitle }) {
   if (!text || text.length < 2) return;
-  if (text === currentText && tooltip?.classList.contains('ds-visible')) return;
+  if (text === currentText && tooltip?.classList.contains('ds-visible') && !tooltip.querySelector('.ds-error')) return;
 
   // 中止上一个流
   abortStream();
   currentText = text;
-  currentMode = mode;
   isLoading = true;
   currentExplanation = null;
 
@@ -206,15 +208,20 @@ async function triggerWithStream({ text, mode, popupTitle }) {
 
   // 建立流式连接
   const port = safeConnect(`stream-${Date.now()}`);
-  if (!port) { isLoading = false; return; }
+  if (!port) {
+    isLoading = false;
+    el.querySelector('.ds-body').classList.remove('ds-streaming');
+    el.querySelector('.ds-body').innerHTML = '<span class="ds-error">扩展已重载，请刷新页面后重试</span>';
+    return;
+  }
   currentStreamPort = port;
   let buffer = '';
 
   port.onMessage.addListener((msg) => {
     if (msg.type === 'token') {
       buffer += msg.token;
-      const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
-      el.querySelector('.ds-body').textContent = isExplainLike ? cleanMarkdown(buffer) : buffer;
+      // 流式期间直接显示原文 token（避免逐 token 全量 cleanMarkdown 的 O(n²) 开销），done 时统一清理
+      el.querySelector('.ds-body').textContent = buffer;
     } else if (msg.type === 'done') {
       isLoading = false;
       const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
@@ -228,6 +235,8 @@ async function triggerWithStream({ text, mode, popupTitle }) {
       updateExtraActions(mode);
       port.disconnect();
       currentStreamPort = null;
+      // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
+      if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
       isLoading = false;
       currentExplanation = null;
@@ -236,10 +245,14 @@ async function triggerWithStream({ text, mode, popupTitle }) {
       el.querySelector('.ds-actions').style.display = 'none';
       port.disconnect();
       currentStreamPort = null;
+      // 与 done 分支对称：鼠标已不在弹窗上时恢复自动隐藏
+      if (!el.matches(':hover')) scheduleHide();
     }
   });
 
   port.onDisconnect.addListener(() => {
+    // 旧流被新流顶替时（abortStream），其回调不得干扰新流状态
+    if (currentStreamPort !== port) return;
     currentStreamPort = null;
     if (isLoading) {
       isLoading = false;
@@ -247,6 +260,7 @@ async function triggerWithStream({ text, mode, popupTitle }) {
         el.querySelector('.ds-body').classList.remove('ds-streaming');
         el.querySelector('.ds-body').textContent = '⚠️ 连接中断，请重试';
       }
+      if (!el.matches(':hover')) scheduleHide();
     }
   });
 
@@ -422,7 +436,7 @@ async function handleExplainThis(e) {
   if (!port) {
     isLoading = false;
     btn.disabled = false;
-    btn.querySelector('.ds-btn-label').textContent = '重试';
+    btn.querySelector('.ds-btn-label').textContent = '重试（需刷新页面）';
     return;
   }
   currentStreamPort = port;
@@ -442,11 +456,14 @@ async function handleExplainThis(e) {
   port.onMessage.addListener((msg) => {
     if (msg.type === 'token') {
       buffer += msg.token;
-      el.querySelector('.ds-body').textContent = cleanMarkdown(buffer);
+      // 流式期间直接显示，done 时统一 cleanMarkdown（避免逐 token 全量清理）
+      el.querySelector('.ds-body').textContent = buffer;
     } else if (msg.type === 'done') {
       currentExplanation = cleanMarkdown(buffer);
       el.querySelector('.ds-body').textContent = currentExplanation;
       cleanup();
+      // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
+      if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
       el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
       cleanup();
@@ -454,6 +471,8 @@ async function handleExplainThis(e) {
   });
 
   port.onDisconnect.addListener(() => {
+    // 旧流被新流顶替时，其回调不得干扰新流状态
+    if (currentStreamPort !== port) return;
     if (isLoading) {
       if (!el.querySelector('.ds-body').textContent) {
         el.querySelector('.ds-body').textContent = '⚠️ 连接中断';
@@ -512,6 +531,7 @@ function isEditingElement() {
 document.addEventListener('mouseup', (e) => {
   if (isInTooltip(e.target)) return;
   if (triggerMode !== 'auto') return;
+  if (e.button !== 0) return; // 仅左键拖动选区触发，避免右键点击误触发
 
   clearTimeout(selectionDebounce);
   selectionDebounce = setTimeout(() => {
@@ -522,7 +542,7 @@ document.addEventListener('mouseup', (e) => {
       if (!isLoading) hideTooltip();
       return;
     }
-    if (text === currentText && tooltip?.classList.contains('ds-visible')) return;
+    if (text === currentText && tooltip?.classList.contains('ds-visible') && !tooltip.querySelector('.ds-error')) return;
 
     const mode = classifyText(text);
     triggerWithStream({ text, mode, popupTitle: `DeepSeek ${modeLabel(mode)}` });
@@ -562,9 +582,14 @@ document.addEventListener('keydown', (e) => {
 window.addEventListener('scroll', () => {
   if (!tooltip?.classList.contains('ds-visible')) return;
   if (isLoading) return;
-  const sel = window.getSelection();
-  if (!sel || sel.isCollapsed) { hideTooltip(); return; }
-  const coords = getSelectionDocCoords();
-  if (coords) positionTooltip(coords);
-  else hideTooltip();
+  // rAF 节流：滚动事件高频触发，避免每帧强制布局
+  if (scrollRaf) return;
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = null;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { hideTooltip(); return; }
+    const coords = getSelectionDocCoords();
+    if (coords) positionTooltip(coords);
+    else hideTooltip();
+  });
 }, { passive: true });

@@ -149,15 +149,9 @@ $saveBtn.addEventListener('click', async () => {
   const apiKey = $apiKey.value.trim();
   const qwenApiKey = $qwenApiKey.value.trim();
 
-  const stored = await chrome.storage.local.get({ apiKey: '', qwenApiKey: '' });
-  if (!apiKey && !stored.apiKey && !qwenApiKey && !stored.qwenApiKey) {
-    showStatus('请至少设置一个 API Key（DeepSeek 或 千问）', 'error');
-    return;
-  }
-
   const config = {
-    apiKey: apiKey || stored.apiKey,
-    qwenApiKey: qwenApiKey || stored.qwenApiKey,
+    apiKey: apiKey,
+    qwenApiKey: qwenApiKey,
     // 解释标签
     explainModel: $explainModel.value,
     explainThinkingEnabled: $explainThinking.checked,
@@ -176,7 +170,11 @@ $saveBtn.addEventListener('click', async () => {
 
   try {
     await chrome.storage.local.set(config);
-    showStatus('✅ 设置已保存！现在去任意页面试试吧', 'success');
+    if (!apiKey && !qwenApiKey) {
+      showStatus('⚠️ 已保存，但未设置任何 API Key，扩展将无法使用', 'error');
+    } else {
+      showStatus('✅ 设置已保存！现在去任意页面试试吧', 'success');
+    }
   } catch (err) {
     showStatus('保存失败: ' + err.message, 'error');
   }

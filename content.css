@@ -94,6 +94,8 @@
   color: #334155;
   word-break: break-word;
   min-height: 28px;
+  max-height: 40vh;
+  overflow-y: auto;
   white-space: pre-line;
 }
 
@@ -149,29 +151,6 @@
 
 .ds-btn-label {
   font-weight: 500;
-}
-
-/* ── 加载动画 ── */
-.ds-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #94a3b8;
-  font-size: 12px;
-}
-
-.ds-spinner {
-  display: inline-block;
-  width: 15px;
-  height: 15px;
-  border: 2px solid #e2e8f0;
-  border-top-color: #2563eb;
-  border-radius: 50%;
-  animation: ds-spin 0.7s linear infinite;
-}
-
-@keyframes ds-spin {
-  to { transform: rotate(360deg); }
 }
 
 /* ── 错误 ── */
