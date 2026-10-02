@@ -5,8 +5,8 @@ let tooltip = null;
 let currentText = null;
 let currentExplanation = null;
 let isLoading = false;
-let hideTimer = null;
 let currentStreamPort = null;
+let currentRenderers = [];
 let scrollRaf = null;
 
 // ── 触发模式 ──
@@ -64,6 +64,10 @@ function getTooltip() {
         <span class="ds-brand">DeepSeek 解释</span>
         <button class="ds-close" title="关闭">×</button>
       </div>
+      <div class="ds-reasoning" style="display:none">
+        <div class="ds-reasoning-title">思考中…</div>
+        <div class="ds-reasoning-body"></div>
+      </div>
       <div class="ds-quote"></div>
       <div class="ds-body"></div>
       <div class="ds-actions">
@@ -85,8 +89,6 @@ function getTooltip() {
         <span class="ds-powered">Powered by DeepSeek</span>
       </div>
     `;
-    tooltip.addEventListener('mouseenter', () => clearTimeout(hideTimer));
-    tooltip.addEventListener('mouseleave', () => scheduleHide());
     tooltip.querySelector('.ds-close').addEventListener('click', hideTooltip);
     tooltip.querySelector('.ds-btn-copy').addEventListener('click', handleCopy);
     tooltip.querySelector('.ds-btn-download').addEventListener('click', handleDownload);
@@ -153,15 +155,6 @@ function hideTooltip() {
   isLoading = false;
 }
 
-function scheduleHide() {
-  clearTimeout(hideTimer); // 先清残留定时器，再判断是否调度（isLoading 时也清，避免残余窗口）
-  if (isLoading) return; // 流式生成中不因鼠标移出/选区折叠而隐藏，避免弹窗生成一半消失
-  hideTimer = setTimeout(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) hideTooltip();
-  }, 200);
-}
-
 // ═══════════════════════════════════════════
 // 流式中止
 // ═══════════════════════════════════════════
@@ -171,6 +164,81 @@ function abortStream() {
     try { currentStreamPort.disconnect(); } catch {}
     currentStreamPort = null;
   }
+  for (const renderer of currentRenderers) {
+    try { renderer.cancel(); } catch {}
+  }
+  currentRenderers = [];
+}
+
+// 真流式文本渲染器：网络 chunk 先进入播放队列，再每帧定量追加。
+// 这样既不会“一口气全显示”，也不会把超长文本一次性塞进 DOM 造成卡死/闪退。
+const MAX_CHARS_PER_FRAME = 2048;
+
+function createStreamingTextRenderer(container) {
+  let textNode = document.createTextNode('');
+  container.textContent = '';
+  container.appendChild(textNode);
+
+  let pending = '';
+  let rafId = 0;
+  let idleCallback = null;
+
+  const schedule = () => {
+    if (!rafId && pending) rafId = requestAnimationFrame(step);
+  };
+
+  const finishIfIdle = () => {
+    if (!pending && idleCallback) {
+      const cb = idleCallback;
+      idleCallback = null;
+      cb();
+    }
+  };
+
+  function step() {
+    rafId = 0;
+    if (!pending) {
+      finishIfIdle();
+      return;
+    }
+
+    // 自适应追赶：小段慢慢吐，大段拆成多帧，但单帧最多 2048 字符
+    const adaptive = Math.max(1, Math.ceil(pending.length / 12));
+    const take = Math.min(pending.length, MAX_CHARS_PER_FRAME, adaptive);
+    textNode.appendData(pending.slice(0, take));
+    pending = pending.slice(take);
+
+    if (pending) schedule();
+    else finishIfIdle();
+  }
+
+  return {
+    push(chunk) {
+      if (!chunk) return;
+      pending += chunk;
+      schedule();
+    },
+    setFinal(text) {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      pending = '';
+      container.textContent = '';
+      textNode = document.createTextNode('');
+      container.appendChild(textNode);
+      pending = String(text || '');
+      schedule();
+    },
+    onIdle(callback) {
+      if (!pending) callback();
+      else idleCallback = callback;
+    },
+    cancel() {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      pending = '';
+      idleCallback = null;
+    }
+  };
 }
 
 // ═══════════════════════════════════════════
@@ -197,12 +265,25 @@ async function triggerWithStream({ text, mode, popupTitle }) {
   };
 
   const el = getTooltip();
+  const bodyEl = el.querySelector('.ds-body');
+  const reasoningEl = el.querySelector('.ds-reasoning');
+  const reasoningTitleEl = el.querySelector('.ds-reasoning-title');
+  const reasoningBodyEl = el.querySelector('.ds-reasoning-body');
+
   el.querySelector('.ds-brand').textContent = popupTitle;
   el.querySelector('.ds-quote').textContent = truncate(text, 80);
-  el.querySelector('.ds-body').textContent = '';
-  el.querySelector('.ds-body').classList.add('ds-streaming');
+  bodyEl.classList.add('ds-streaming');
+  reasoningEl.style.display = 'none';
+  reasoningTitleEl.textContent = '思考中…';
   el.querySelector('.ds-actions').style.display = 'none';
   el.querySelector('.ds-model-tag').textContent = '';
+
+  const bodyRenderer = createStreamingTextRenderer(bodyEl);
+  const reasoningRenderer = createStreamingTextRenderer(reasoningBodyEl);
+  currentRenderers = [bodyRenderer, reasoningRenderer];
+  let buffer = '';
+  let hasReasoning = false;
+  let hasContent = false;
 
   positionTooltip(coords);
 
@@ -210,43 +291,49 @@ async function triggerWithStream({ text, mode, popupTitle }) {
   const port = safeConnect(`stream-${Date.now()}`);
   if (!port) {
     isLoading = false;
-    el.querySelector('.ds-body').classList.remove('ds-streaming');
-    el.querySelector('.ds-body').innerHTML = '<span class="ds-error">扩展已重载，请刷新页面后重试</span>';
+    bodyRenderer.cancel();
+    bodyEl.classList.remove('ds-streaming');
+    bodyEl.innerHTML = '<span class="ds-error">扩展已重载，请刷新页面后重试</span>';
     return;
   }
   currentStreamPort = port;
-  let buffer = '';
 
   port.onMessage.addListener((msg) => {
-    if (msg.type === 'token') {
+    if (msg.type === 'reasoning-token') {
+      hasReasoning = true;
+      reasoningEl.style.display = 'block';
+      reasoningRenderer.push(msg.token);
+    } else if (msg.type === 'token') {
+      if (!hasContent) {
+        hasContent = true;
+        if (hasReasoning) reasoningTitleEl.textContent = '思考过程';
+      }
       buffer += msg.token;
-      // 流式期间直接显示原文 token（避免逐 token 全量 cleanMarkdown 的 O(n²) 开销），done 时统一清理
-      el.querySelector('.ds-body').textContent = buffer;
+      bodyRenderer.push(msg.token);
     } else if (msg.type === 'done') {
       isLoading = false;
       const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
       const display = isExplainLike ? cleanMarkdown(buffer) : buffer;
       currentExplanation = display;
-      el.querySelector('.ds-body').textContent = display;
-      el.querySelector('.ds-body').classList.remove('ds-streaming');
+      bodyRenderer.setFinal(display);
+      bodyEl.classList.remove('ds-streaming');
       el.querySelector('.ds-actions').style.display = 'flex';
       el.querySelector('.ds-model-tag').textContent = msg.model || '';
-      // 🆕 模式 B：翻译完成后显示"解释此句"按钮
+      // 🆕 模式 B：翻译完成后显示“解释此句”按钮
       updateExtraActions(mode);
       port.disconnect();
       currentStreamPort = null;
-      // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
-      if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
       isLoading = false;
       currentExplanation = null;
-      el.querySelector('.ds-body').classList.remove('ds-streaming');
-      el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
+      reasoningRenderer.cancel();
+      bodyRenderer.cancel();
+      reasoningEl.style.display = 'none';
+      bodyEl.classList.remove('ds-streaming');
+      bodyEl.innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
       el.querySelector('.ds-actions').style.display = 'none';
       port.disconnect();
       currentStreamPort = null;
-      // 与 done 分支对称：鼠标已不在弹窗上时恢复自动隐藏
-      if (!el.matches(':hover')) scheduleHide();
     }
   });
 
@@ -257,10 +344,10 @@ async function triggerWithStream({ text, mode, popupTitle }) {
     if (isLoading) {
       isLoading = false;
       if (!currentExplanation) {
-        el.querySelector('.ds-body').classList.remove('ds-streaming');
-        el.querySelector('.ds-body').textContent = '⚠️ 连接中断，请重试';
+        bodyRenderer.cancel();
+        bodyEl.classList.remove('ds-streaming');
+        bodyRenderer.setFinal('⚠️ 连接中断，请重试');
       }
-      if (!el.matches(':hover')) scheduleHide();
     }
   });
 
@@ -421,8 +508,6 @@ async function handleExplainThis(e) {
   btn.disabled = true;
   btn.querySelector('.ds-btn-label').textContent = '解释中…';
 
-  // 三道防线防止卡片关闭
-  clearTimeout(hideTimer);
   abortStream();
   isLoading = true;
 
@@ -441,41 +526,57 @@ async function handleExplainThis(e) {
   }
   currentStreamPort = port;
 
-  el.querySelector('.ds-body').textContent = '';
-  el.querySelector('.ds-body').classList.add('ds-streaming');
+  const bodyEl = el.querySelector('.ds-body');
+  const reasoningEl = el.querySelector('.ds-reasoning');
+  const reasoningTitleEl = el.querySelector('.ds-reasoning-title');
+  const reasoningBodyEl = el.querySelector('.ds-reasoning-body');
+
+  bodyEl.classList.add('ds-streaming');
+  reasoningEl.style.display = 'none';
+  reasoningTitleEl.textContent = '思考中…';
+  const bodyRenderer = createStreamingTextRenderer(bodyEl);
+  const reasoningRenderer = createStreamingTextRenderer(reasoningBodyEl);
+  currentRenderers = [bodyRenderer, reasoningRenderer];
   let buffer = '';
+  let hasReasoning = false;
 
   const cleanup = () => {
     isLoading = false;
-    el.querySelector('.ds-body').classList.remove('ds-streaming');
+    bodyEl.classList.remove('ds-streaming');
     btn.remove();
     currentStreamPort = null;
     try { port.disconnect(); } catch {}
   };
 
   port.onMessage.addListener((msg) => {
-    if (msg.type === 'token') {
+    if (msg.type === 'reasoning-token') {
+      hasReasoning = true;
+      reasoningEl.style.display = 'block';
+      reasoningRenderer.push(msg.token);
+    } else if (msg.type === 'token') {
+      if (hasReasoning && !buffer) reasoningTitleEl.textContent = '思考过程';
       buffer += msg.token;
-      // 流式期间直接显示，done 时统一 cleanMarkdown（避免逐 token 全量清理）
-      el.querySelector('.ds-body').textContent = buffer;
+      bodyRenderer.push(msg.token);
     } else if (msg.type === 'done') {
       currentExplanation = cleanMarkdown(buffer);
-      el.querySelector('.ds-body').textContent = currentExplanation;
+      bodyRenderer.setFinal(currentExplanation);
       cleanup();
-      // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
-      if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
-      el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
+      reasoningRenderer.cancel();
+      bodyRenderer.cancel();
+      reasoningEl.style.display = 'none';
+      bodyEl.innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
       cleanup();
     }
   });
 
   port.onDisconnect.addListener(() => {
-    // 旧流被新流顶替时，其回调不得干扰新流状态
+    // 旧流被新流顶替时（abortStream），其回调不得干扰新流状态
     if (currentStreamPort !== port) return;
     if (isLoading) {
-      if (!el.querySelector('.ds-body').textContent) {
-        el.querySelector('.ds-body').textContent = '⚠️ 连接中断';
+      if (!buffer.trim()) {
+        bodyRenderer.cancel();
+        bodyEl.textContent = '⚠️ 连接中断';
       }
       cleanup();
     }
@@ -539,7 +640,6 @@ document.addEventListener('mouseup', (e) => {
     const sel = window.getSelection();
     const text = sel.toString().trim();
     if (!text || text.length < 2) {
-      if (!isLoading) hideTooltip();
       return;
     }
     if (text === currentText && tooltip?.classList.contains('ds-visible') && !tooltip.querySelector('.ds-error')) return;
@@ -560,36 +660,14 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-// ── 点击弹窗外部关闭 ──
-document.addEventListener('mousedown', (e) => {
-  if (tooltip?.classList.contains('ds-visible') && !isInTooltip(e.target)) {
-    hideTooltip();
-  }
-});
-
-document.addEventListener('selectionchange', () => {
-  if (!tooltip?.classList.contains('ds-visible')) return;
-  const sel = window.getSelection();
-  if (sel.isCollapsed && !isLoading) scheduleHide();
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && tooltip?.classList.contains('ds-visible')) {
-    hideTooltip();
-  }
-});
-
+// 弹窗只允许手动点 × 关闭：不再监听 mouseleave / 外部点击 / Esc / selectionchange 自动关闭。
+// 滚动时仅在有选区坐标时重新定位，不因为选区折叠而隐藏。
 window.addEventListener('scroll', () => {
   if (!tooltip?.classList.contains('ds-visible')) return;
-  if (isLoading) return;
-  // rAF 节流：滚动事件高频触发，避免每帧强制布局
   if (scrollRaf) return;
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = null;
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { hideTooltip(); return; }
     const coords = getSelectionDocCoords();
     if (coords) positionTooltip(coords);
-    else hideTooltip();
   });
 }, { passive: true });
