@@ -7,6 +7,7 @@ let currentExplanation = null;
 let isLoading = false;
 let hideTimer = null;
 let currentStreamPort = null;
+let currentRenderers = [];
 let scrollRaf = null;
 
 // ── 触发模式 ──
@@ -175,38 +176,79 @@ function abortStream() {
     try { currentStreamPort.disconnect(); } catch {}
     currentStreamPort = null;
   }
+  for (const renderer of currentRenderers) {
+    try { renderer.cancel(); } catch {}
+  }
+  currentRenderers = [];
 }
 
-// 真流式文本渲染器：接收 chunk 后通过 rAF 增量追加，避免每 token 重写整个 textContent
+// 真流式文本渲染器：网络 chunk 先进入播放队列，再每帧定量追加。
+// 这样既不会“一口气全显示”，也不会把超长文本一次性塞进 DOM 造成卡死/闪退。
+const MAX_CHARS_PER_FRAME = 2048;
+
 function createStreamingTextRenderer(container) {
+  let textNode = document.createTextNode('');
   container.textContent = '';
-  const textNode = document.createTextNode('');
   container.appendChild(textNode);
+
   let pending = '';
   let rafId = 0;
+  let idleCallback = null;
 
-  const flush = () => {
-    rafId = 0;
-    if (!pending) return;
-    textNode.appendData(pending);
-    pending = '';
+  const schedule = () => {
+    if (!rafId && pending) rafId = requestAnimationFrame(step);
   };
+
+  const finishIfIdle = () => {
+    if (!pending && idleCallback) {
+      const cb = idleCallback;
+      idleCallback = null;
+      cb();
+    }
+  };
+
+  function step() {
+    rafId = 0;
+    if (!pending) {
+      finishIfIdle();
+      return;
+    }
+
+    // 自适应追赶：小段慢慢吐，大段拆成多帧，但单帧最多 2048 字符
+    const adaptive = Math.max(1, Math.ceil(pending.length / 12));
+    const take = Math.min(pending.length, MAX_CHARS_PER_FRAME, adaptive);
+    textNode.appendData(pending.slice(0, take));
+    pending = pending.slice(take);
+
+    if (pending) schedule();
+    else finishIfIdle();
+  }
 
   return {
     push(chunk) {
       if (!chunk) return;
       pending += chunk;
-      if (!rafId) rafId = requestAnimationFrame(flush);
+      schedule();
     },
-    flush,
+    setFinal(text) {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      pending = '';
+      container.textContent = '';
+      textNode = document.createTextNode('');
+      container.appendChild(textNode);
+      pending = String(text || '');
+      schedule();
+    },
+    onIdle(callback) {
+      if (!pending) callback();
+      else idleCallback = callback;
+    },
     cancel() {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = 0;
       pending = '';
-    },
-    setFinal(text) {
-      this.cancel();
-      container.textContent = text;
+      idleCallback = null;
     }
   };
 }
@@ -250,6 +292,7 @@ async function triggerWithStream({ text, mode, popupTitle }) {
 
   const bodyRenderer = createStreamingTextRenderer(bodyEl);
   const reasoningRenderer = createStreamingTextRenderer(reasoningBodyEl);
+  currentRenderers = [bodyRenderer, reasoningRenderer];
   let buffer = '';
   let hasReasoning = false;
   let hasContent = false;
@@ -284,7 +327,6 @@ async function triggerWithStream({ text, mode, popupTitle }) {
       const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
       const display = isExplainLike ? cleanMarkdown(buffer) : buffer;
       currentExplanation = display;
-      reasoningRenderer.flush();
       bodyRenderer.setFinal(display);
       bodyEl.classList.remove('ds-streaming');
       el.querySelector('.ds-actions').style.display = 'flex';
@@ -293,8 +335,6 @@ async function triggerWithStream({ text, mode, popupTitle }) {
       updateExtraActions(mode);
       port.disconnect();
       currentStreamPort = null;
-      // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
-      if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
       isLoading = false;
       currentExplanation = null;
@@ -306,8 +346,6 @@ async function triggerWithStream({ text, mode, popupTitle }) {
       el.querySelector('.ds-actions').style.display = 'none';
       port.disconnect();
       currentStreamPort = null;
-      // 与 done 分支对称：鼠标已不在弹窗上时恢复自动隐藏
-      if (!el.matches(':hover')) scheduleHide();
     }
   });
 
@@ -322,7 +360,6 @@ async function triggerWithStream({ text, mode, popupTitle }) {
         bodyEl.classList.remove('ds-streaming');
         bodyRenderer.setFinal('⚠️ 连接中断，请重试');
       }
-      if (!el.matches(':hover')) scheduleHide();
     }
   });
 
@@ -513,6 +550,7 @@ async function handleExplainThis(e) {
   reasoningTitleEl.textContent = '思考中…';
   const bodyRenderer = createStreamingTextRenderer(bodyEl);
   const reasoningRenderer = createStreamingTextRenderer(reasoningBodyEl);
+  currentRenderers = [bodyRenderer, reasoningRenderer];
   let buffer = '';
   let hasReasoning = false;
 
@@ -535,11 +573,8 @@ async function handleExplainThis(e) {
       bodyRenderer.push(msg.token);
     } else if (msg.type === 'done') {
       currentExplanation = cleanMarkdown(buffer);
-      reasoningRenderer.flush();
       bodyRenderer.setFinal(currentExplanation);
       cleanup();
-      // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
-      if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
       reasoningRenderer.cancel();
       bodyRenderer.cancel();

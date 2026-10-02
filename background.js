@@ -3,6 +3,7 @@
 
 const CACHE = new Map();
 const CACHE_MAX = 100;
+const MAX_STREAM_CHARS = 2048; // 单条扩展消息最大字符数，避免超大文本一次塞进弹窗 DOM
 
 // 官方已将 deepseek-v4-flash 迁移为 deepseek-flash（DeepSeek-V4.1-Flash）。
 // 旧的调用名仍被官方接受，但对应模型已退役；这里统一归一化，避免旧配置继续发旧模型名。
@@ -197,12 +198,13 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
   if (CACHE.has(cacheKey)) {
     // 模拟流式：分 chunk 发送缓存结果
     const cached = CACHE.get(cacheKey);
-    const chunks = splitIntoChunks(cached, 3);
+    const chunkCount = Math.max(1, Math.ceil(cached.length / MAX_STREAM_CHARS));
+    const chunks = splitIntoChunks(cached, chunkCount);
     for (const chunk of chunks) {
       // 端口可能已被页面断开（用户关闭弹窗），发送失败即中止
       try {
         port.postMessage({ type: 'token', token: chunk, batchId });
-        await sleep(30);
+        await sleep(16);
       } catch {
         port.disconnect();
         return;
@@ -272,13 +274,23 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
     let tokenChunk = '';
     let reasoningChunk = '';
 
+    const postStreamChunk = (type, text) => {
+      for (let i = 0; i < text.length; i += MAX_STREAM_CHARS) {
+        port.postMessage({
+          type,
+          token: text.slice(i, i + MAX_STREAM_CHARS),
+          batchId
+        });
+      }
+    };
+
     const flushChunks = () => {
       if (reasoningChunk) {
-        port.postMessage({ type: 'reasoning-token', token: reasoningChunk, batchId });
+        postStreamChunk('reasoning-token', reasoningChunk);
         reasoningChunk = '';
       }
       if (tokenChunk) {
-        port.postMessage({ type: 'token', token: tokenChunk, batchId });
+        postStreamChunk('token', tokenChunk);
         tokenChunk = '';
       }
     };
