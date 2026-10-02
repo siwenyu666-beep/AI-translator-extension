@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="container">
-  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.3.0</span></h1>
+  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.4.0</span></h1>
 
   <!-- ═══ 标签切换 ═══ -->
   <div class="tab-bar">
@@ -22,13 +22,19 @@
       <label class="label" for="explain-model">模型</label>
       <select id="explain-model" class="select">
         <optgroup label="DeepSeek">
-          <option value="deepseek-v4-flash">V4-Flash（推荐 · 快速准确）</option>
-          <option value="deepseek-v4-pro">V4-Pro（深度推理）</option>
+          <option value="deepseek-flash">DeepSeek-V4.1-Flash（推荐 · 快速准确）</option>
+          <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
         </optgroup>
         <optgroup label="千问">
           <option value="qwen3.7-flash">Qwen3.7-Flash（高性价比）</option>
         </optgroup>
       </select>
+      <div class="custom-model-row">
+        <input type="text" id="explain-custom-model" class="input custom-model-input" placeholder="输入模型调用名，如 deepseek-flash" autocomplete="off">
+        <button type="button" id="explain-custom-add" class="mini-btn">保存使用</button>
+        <button type="button" id="explain-custom-delete" class="mini-btn danger" disabled>删除</button>
+      </div>
+      <p class="hint">自定义模型会长期保存；点击“删除”可移除当前选中的自定义模型。以 qwen 开头走千问，其余走 DeepSeek。</p>
     </div>
 
     <div class="section">
@@ -36,7 +42,7 @@
         <input type="checkbox" id="explain-thinking">
         <span class="toggle-text">深度思考模式</span>
       </label>
-      <p class="hint">DeepSeek V4-Flash / V4-Pro 均支持。开启后更深入但耗时更长。</p>
+      <p class="hint">DeepSeek Flash / V4-Pro 均支持。开启后更深入但耗时更长。</p>
     </div>
 
     <div class="section" id="explain-effort-section" style="display:none">
@@ -63,13 +69,19 @@
       <label class="label" for="translate-model">模型</label>
       <select id="translate-model" class="select">
         <optgroup label="DeepSeek">
-          <option value="deepseek-v4-flash">V4-Flash（推荐 · 快速准确）</option>
-          <option value="deepseek-v4-pro">V4-Pro（深度推理）</option>
+          <option value="deepseek-flash">DeepSeek-V4.1-Flash（推荐 · 快速准确）</option>
+          <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
         </optgroup>
         <optgroup label="千问">
           <option value="qwen3.7-flash">Qwen3.7-Flash（高性价比）</option>
         </optgroup>
       </select>
+      <div class="custom-model-row">
+        <input type="text" id="translate-custom-model" class="input custom-model-input" placeholder="输入模型调用名，如 deepseek-flash" autocomplete="off">
+        <button type="button" id="translate-custom-add" class="mini-btn">保存使用</button>
+        <button type="button" id="translate-custom-delete" class="mini-btn danger" disabled>删除</button>
+      </div>
+      <p class="hint">自定义模型会长期保存；点击“删除”可移除当前选中的自定义模型。以 qwen 开头走千问，其余走 DeepSeek。</p>
     </div>
 
     <div class="section">
@@ -77,7 +89,7 @@
         <input type="checkbox" id="translate-thinking">
         <span class="toggle-text">深度思考模式</span>
       </label>
-      <p class="hint">DeepSeek V4-Flash / V4-Pro 均支持。开启后更精准但耗时与 token 消耗大幅增加，全文翻译建议保持关闭。</p>
+      <p class="hint">DeepSeek Flash / V4-Pro 均支持。开启后更精准但耗时与 token 消耗大幅增加，全文翻译建议保持关闭。</p>
     </div>
 
     <div class="section" id="translate-effort-section" style="display:none">
