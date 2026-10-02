@@ -5,7 +5,6 @@ let tooltip = null;
 let currentText = null;
 let currentExplanation = null;
 let isLoading = false;
-let hideTimer = null;
 let currentStreamPort = null;
 let currentRenderers = [];
 let scrollRaf = null;
@@ -90,8 +89,6 @@ function getTooltip() {
         <span class="ds-powered">Powered by DeepSeek</span>
       </div>
     `;
-    tooltip.addEventListener('mouseenter', () => clearTimeout(hideTimer));
-    tooltip.addEventListener('mouseleave', () => scheduleHide());
     tooltip.querySelector('.ds-close').addEventListener('click', hideTooltip);
     tooltip.querySelector('.ds-btn-copy').addEventListener('click', handleCopy);
     tooltip.querySelector('.ds-btn-download').addEventListener('click', handleDownload);
@@ -156,15 +153,6 @@ function hideTooltip() {
   currentText = null;
   currentExplanation = null;
   isLoading = false;
-}
-
-function scheduleHide() {
-  clearTimeout(hideTimer); // 先清残留定时器，再判断是否调度（isLoading 时也清，避免残余窗口）
-  if (isLoading) return; // 流式生成中不因鼠标移出/选区折叠而隐藏，避免弹窗生成一半消失
-  hideTimer = setTimeout(() => {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) hideTooltip();
-  }, 200);
 }
 
 // ═══════════════════════════════════════════
@@ -520,8 +508,6 @@ async function handleExplainThis(e) {
   btn.disabled = true;
   btn.querySelector('.ds-btn-label').textContent = '解释中…';
 
-  // 三道防线防止卡片关闭
-  clearTimeout(hideTimer);
   abortStream();
   isLoading = true;
 
@@ -654,7 +640,6 @@ document.addEventListener('mouseup', (e) => {
     const sel = window.getSelection();
     const text = sel.toString().trim();
     if (!text || text.length < 2) {
-      if (!isLoading) hideTooltip();
       return;
     }
     if (text === currentText && tooltip?.classList.contains('ds-visible') && !tooltip.querySelector('.ds-error')) return;
@@ -675,36 +660,14 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-// ── 点击弹窗外部关闭 ──
-document.addEventListener('mousedown', (e) => {
-  if (tooltip?.classList.contains('ds-visible') && !isInTooltip(e.target)) {
-    hideTooltip();
-  }
-});
-
-document.addEventListener('selectionchange', () => {
-  if (!tooltip?.classList.contains('ds-visible')) return;
-  const sel = window.getSelection();
-  if (sel.isCollapsed && !isLoading) scheduleHide();
-});
-
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && tooltip?.classList.contains('ds-visible')) {
-    hideTooltip();
-  }
-});
-
+// 弹窗只允许手动点 × 关闭：不再监听 mouseleave / 外部点击 / Esc / selectionchange 自动关闭。
+// 滚动时仅在有选区坐标时重新定位，不因为选区折叠而隐藏。
 window.addEventListener('scroll', () => {
   if (!tooltip?.classList.contains('ds-visible')) return;
-  if (isLoading) return;
-  // rAF 节流：滚动事件高频触发，避免每帧强制布局
   if (scrollRaf) return;
   scrollRaf = requestAnimationFrame(() => {
     scrollRaf = null;
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed) { hideTooltip(); return; }
     const coords = getSelectionDocCoords();
     if (coords) positionTooltip(coords);
-    else hideTooltip();
   });
 }, { passive: true });

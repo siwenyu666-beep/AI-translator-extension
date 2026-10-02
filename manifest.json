@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek 智能解释 & 翻译",
-  "version": "3.6.1",
+  "version": "3.6.2",
   "description": "选中文本真流式解释/翻译，全文翻译支持 50 并发、相邻块批量与视口懒加载。模型列表可在线检测、修改、删除。",
   "permissions": ["storage", "downloads", "contextMenus", "scripting"],
   "host_permissions": ["<all_urls>"],
