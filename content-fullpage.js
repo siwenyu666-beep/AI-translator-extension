@@ -357,10 +357,19 @@
     }
 
     add(task) {
-      if (aborted || !task || task.status !== 'pending') return;
-      task.status = 'queued';
-      this.queue.push(task);
-      this.process();
+      this.addMany([task]);
+    }
+
+    addMany(tasks) {
+      if (aborted || !Array.isArray(tasks) || tasks.length === 0) return;
+      let changed = false;
+      for (const task of tasks) {
+        if (!task || task.status !== 'pending') continue;
+        task.status = 'queued';
+        this.queue.push(task);
+        changed = true;
+      }
+      if (changed) this.process();
     }
 
     takeBatch() {
@@ -596,7 +605,7 @@
 
         // 先翻用户当前看得到的，再按 DOM 顺序组成相邻块 batch
         ready.sort((a, b) => a.viewportTop - b.viewportTop || a.index - b.index);
-        for (const task of ready) queue.add(task);
+        queue.addMany(ready);
       },
       { rootMargin, threshold: 0 }
     );
