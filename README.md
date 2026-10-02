@@ -29,8 +29,10 @@
 - **网页上下文**：自动提取选中文本所在段落的上下文，让结果更准确（可选开关）
 - **流式输出**：所有解释/翻译结果逐 token 打字机式呈现，即时反馈
 - **一键复制 / 下载**：将内容写入剪贴板或保存为 TXT 文件
-- **多模型**：支持 DeepSeek-V4-Flash、DeepSeek-V4-Pro、千问 Qwen3.7-Flash（暂不推荐使用千问模型）
-- **深度思考**：可选开启思考模式，支持高/最高两档思考强度（DeepSeek V4-Flash / V4-Pro 均支持）
+- **多模型**：支持 DeepSeek-V4.1-Flash（调用名 `deepseek-flash`）、DeepSeek-V4-Pro（调用名 `deepseek-v4-pro`）、千问 Qwen3.7-Flash（暂不推荐使用千问模型）
+- **模型列表**：解释/全文翻译各自从“模型列表”选择模型，选中后调用名会同步到“模型调用名”输入框；预设的 `deepseek-flash`、`deepseek-v4-pro` 也可修改、删除，方便后续模型更新时自助替换
+- **保存前检测**：点“保存使用”会调用官方 `/models` 接口检测模型调用名是否可用；不可用时显示淡红色提示且不写入列表。列表中的模型均支持修改、保存、删除
+- **深度思考**：可选开启思考模式，支持高/最高两档思考强度（DeepSeek Flash / V4-Pro 均支持）
 
 ### 全文翻译（右键空白处）
 
@@ -59,6 +61,9 @@ git clone https://github.com/siwenyu666-beep/AI-translator-extension.git
 2. 开启左侧「开发人员模式」
 3. 点击「加载解压缩的扩展」，选择克隆后的文件夹
 4. 点击工具栏扩展图标，在「解释」或「全文翻译」标签中选择模型，填入对应的 API Key：
+   - 默认推荐 DeepSeek `deepseek-flash`（即 DeepSeek-V4.1-Flash）
+   - 在「模型调用名」输入后点「保存使用」，会先检测模型可用性；通过后当前标签立即使用，并保存到两个标签共享的模型列表
+   - 从「模型列表」选择模型时，输入框会同步显示调用名；修改输入框后点「保存使用」即更新该模型，点「删除」可删除任意列表模型（包括预设模型）
    - DeepSeek 模型 → 需填入 DeepSeek API Key（[获取地址](https://platform.deepseek.com/api_keys)）
    - 千问模型 → 需填入千问 API Key（[获取地址](https://platform.qianwenai.com/home/api-keys)）
 5. 去任意网页选中文字右键，或右键空白处，即可使用
@@ -68,7 +73,7 @@ git clone https://github.com/siwenyu666-beep/AI-translator-extension.git
 - **右键菜单永远只需点一下**：选中文本 →「📖 智能解释」（自动分类，不用纠结选什么）；空白处 →「🌐 全文翻译」。没有多余的菜单项
 - 在设置面板中切换「触发方式」：「选中自动搜索」更快捷，「右键菜单搜索」避免误触发
 - 将 Edge 默认下载目录设为你的笔记文件夹，下载的解释文件会自动归档
-- 开启「深度思考模式」（V4-Pro 效果最佳，Flash 亦支持）
+- 开启「深度思考模式」（V4-Pro 效果最佳，DeepSeek Flash 亦支持）
 - 关闭「结合网页上下文」可减少 token 消耗
 - 按【Esc】可以快速关闭弹窗
 

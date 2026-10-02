@@ -4,6 +4,13 @@
 const CACHE = new Map();
 const CACHE_MAX = 100;
 
+// 官方已将 deepseek-v4-flash 迁移为 deepseek-flash（DeepSeek-V4.1-Flash）。
+// 旧的调用名仍被官方接受，但对应模型已退役；这里统一归一化，避免旧配置继续发旧模型名。
+const LEGACY_MODEL_ALIASES = {
+  'deepseek-v4-flash': 'deepseek-flash',
+  'deepseek-v4-flash-vision-exp': 'deepseek-flash'
+};
+
 // ═══════════════════════════════════════════
 // 右键菜单：安装/更新时创建（精简为两项）
 // ═══════════════════════════════════════════
@@ -55,6 +62,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'INJECT_FULLPAGE_TRANSLATE') {
     injectFullPageTranslator(sender);
     return false;
+  }
+  // 模型可用性检测：调用各供应商的 /models 接口，避免无效模型被保存到列表
+  if (message.type === 'VALIDATE_MODEL') {
+    validateModel(message.model)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ ok: false, error: err.message || '模型检测失败' }));
+    return true; // 异步响应
   }
 });
 
@@ -122,11 +136,11 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
   if (mode) {
     if (mode === 'B') {
       // 纯翻译 → 使用翻译标签的模型
-      model = config.translateModel || 'deepseek-v4-flash';
+      model = config.translateModel || 'deepseek-flash';
       thinkingEnabled = config.translateThinkingEnabled || false;
       reasoningEffort = config.translateReasoningEffort || 'high';
     } else {
-      model = config.explainModel || 'deepseek-v4-flash';
+      model = config.explainModel || 'deepseek-flash';
       thinkingEnabled = config.explainThinkingEnabled || false;
       reasoningEffort = config.explainReasoningEffort || 'high';
     }
@@ -143,14 +157,14 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
     }
   } else if (promptType === 'explain') {
     // 兼容旧路径
-    model = config.explainModel || 'deepseek-v4-flash';
+    model = config.explainModel || 'deepseek-flash';
     thinkingEnabled = config.explainThinkingEnabled || false;
     reasoningEffort = config.explainReasoningEffort || 'high';
     systemPrompt = '你是一个知识渊博、擅于解释的助手。给出简洁清晰的解释，不要重复开场白，直接解释。';
     prompt = buildExplainPrompt(text, config.language, context);
   } else {
     // translate (fullpage / pdf)
-    model = config.translateModel || 'deepseek-v4-flash';
+    model = config.translateModel || 'deepseek-flash';
     thinkingEnabled = config.translateThinkingEnabled || false;
     reasoningEffort = config.translateReasoningEffort || 'high';
     systemPrompt = '你是一个专业的翻译引擎。只输出译文，不要任何解释、说明。';
@@ -213,7 +227,7 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
     };
 
     if (provider === 'deepseek') {
-      // DeepSeek V4 思考模式默认开启，必须显式控制开关，否则 UI 开关形同虚设
+      // DeepSeek V4/V4.1 思考模式默认开启，必须显式控制开关，否则 UI 开关形同虚设
       body.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
       if (thinkingEnabled) {
         body.reasoning_effort = reasoningEffort;
@@ -470,12 +484,12 @@ async function getConfig() {
     apiKey: '',
     qwenApiKey: '',
     // 解释标签
-    explainModel: 'deepseek-v4-flash',
+    explainModel: 'deepseek-flash',
     explainThinkingEnabled: false,
     explainReasoningEffort: 'high',
     language: 'auto',
     // 翻译标签
-    translateModel: 'deepseek-v4-flash',
+    translateModel: 'deepseek-flash',
     translateThinkingEnabled: false,
     translateReasoningEffort: 'high',
     targetLanguage: 'zh',
@@ -507,6 +521,16 @@ async function getConfig() {
     delete stored.reasoningEffort;
     migrated = true;
   }
+  // 归一化旧模型调用名（deepseek-v4-flash -> deepseek-flash）
+  ['explainModel', 'translateModel'].forEach(key => {
+    if (!stored[key]) return;
+    const normalized = normalizeModelName(stored[key]);
+    if (normalized !== stored[key]) {
+      stored[key] = normalized;
+      migrated = true;
+    }
+  });
+
   if (migrated) {
     await chrome.storage.local.set(stored);
     // 删除旧版遗留键，避免每次缓存失效都重跑迁移
@@ -536,8 +560,71 @@ async function parseApiError(res) {
 }
 
 // ═══════════════════════════════════════════
+// 模型可用性检测
+// ═══════════════════════════════════════════
+
+async function validateModel(inputModel) {
+  const model = normalizeModelName(inputModel);
+  if (!model) {
+    return { ok: false, error: '模型调用名不能为空' };
+  }
+
+  const config = await getConfig();
+  const provider = getProvider(model);
+  const apiKey = provider === 'qwen' ? config.qwenApiKey : config.apiKey;
+  if (!apiKey) {
+    const providerName = provider === 'qwen' ? '千问' : 'DeepSeek';
+    return { ok: false, error: `请先设置${providerName} API Key` };
+  }
+
+  const endpoint = provider === 'qwen'
+    ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/models'
+    : 'https://api.deepseek.com/models';
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+
+    if (!res.ok) {
+      return { ok: false, error: await parseApiError(res) };
+    }
+
+    const data = await res.json();
+    const models = Array.isArray(data?.data) ? data.data : [];
+    const found = models.find(item => {
+      const id = item?.id || item?.model;
+      return id && String(id) === model;
+    });
+
+    if (!found) {
+      return { ok: false, error: `未找到可调用的模型：${model}` };
+    }
+
+    return {
+      ok: true,
+      provider: provider,
+      model: {
+        id: found.id || model,
+        name: found.name || found.id || model
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: `模型检测失败：${err.message}` };
+  }
+}
+
+// ═══════════════════════════════════════════
 // 工具函数
 // ═══════════════════════════════════════════
+
+function normalizeModelName(model) {
+  const name = String(model || '').trim();
+  return LEGACY_MODEL_ALIASES[name] || name;
+}
 
 function getProvider(model) {
   return model && model.startsWith('qwen') ? 'qwen' : 'deepseek';
