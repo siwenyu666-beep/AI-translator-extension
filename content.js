@@ -64,6 +64,10 @@ function getTooltip() {
         <span class="ds-brand">DeepSeek 解释</span>
         <button class="ds-close" title="关闭">×</button>
       </div>
+      <div class="ds-reasoning" style="display:none">
+        <div class="ds-reasoning-title">思考中…</div>
+        <div class="ds-reasoning-body"></div>
+      </div>
       <div class="ds-quote"></div>
       <div class="ds-body"></div>
       <div class="ds-actions">
@@ -173,6 +177,40 @@ function abortStream() {
   }
 }
 
+// 真流式文本渲染器：接收 chunk 后通过 rAF 增量追加，避免每 token 重写整个 textContent
+function createStreamingTextRenderer(container) {
+  container.textContent = '';
+  const textNode = document.createTextNode('');
+  container.appendChild(textNode);
+  let pending = '';
+  let rafId = 0;
+
+  const flush = () => {
+    rafId = 0;
+    if (!pending) return;
+    textNode.appendData(pending);
+    pending = '';
+  };
+
+  return {
+    push(chunk) {
+      if (!chunk) return;
+      pending += chunk;
+      if (!rafId) rafId = requestAnimationFrame(flush);
+    },
+    flush,
+    cancel() {
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      pending = '';
+    },
+    setFinal(text) {
+      this.cancel();
+      container.textContent = text;
+    }
+  };
+}
+
 // ═══════════════════════════════════════════
 // 统一流式弹窗触发（解释 & 翻译共用）
 // ═══════════════════════════════════════════
@@ -197,12 +235,24 @@ async function triggerWithStream({ text, mode, popupTitle }) {
   };
 
   const el = getTooltip();
+  const bodyEl = el.querySelector('.ds-body');
+  const reasoningEl = el.querySelector('.ds-reasoning');
+  const reasoningTitleEl = el.querySelector('.ds-reasoning-title');
+  const reasoningBodyEl = el.querySelector('.ds-reasoning-body');
+
   el.querySelector('.ds-brand').textContent = popupTitle;
   el.querySelector('.ds-quote').textContent = truncate(text, 80);
-  el.querySelector('.ds-body').textContent = '';
-  el.querySelector('.ds-body').classList.add('ds-streaming');
+  bodyEl.classList.add('ds-streaming');
+  reasoningEl.style.display = 'none';
+  reasoningTitleEl.textContent = '思考中…';
   el.querySelector('.ds-actions').style.display = 'none';
   el.querySelector('.ds-model-tag').textContent = '';
+
+  const bodyRenderer = createStreamingTextRenderer(bodyEl);
+  const reasoningRenderer = createStreamingTextRenderer(reasoningBodyEl);
+  let buffer = '';
+  let hasReasoning = false;
+  let hasContent = false;
 
   positionTooltip(coords);
 
@@ -210,28 +260,36 @@ async function triggerWithStream({ text, mode, popupTitle }) {
   const port = safeConnect(`stream-${Date.now()}`);
   if (!port) {
     isLoading = false;
-    el.querySelector('.ds-body').classList.remove('ds-streaming');
-    el.querySelector('.ds-body').innerHTML = '<span class="ds-error">扩展已重载，请刷新页面后重试</span>';
+    bodyRenderer.cancel();
+    bodyEl.classList.remove('ds-streaming');
+    bodyEl.innerHTML = '<span class="ds-error">扩展已重载，请刷新页面后重试</span>';
     return;
   }
   currentStreamPort = port;
-  let buffer = '';
 
   port.onMessage.addListener((msg) => {
-    if (msg.type === 'token') {
+    if (msg.type === 'reasoning-token') {
+      hasReasoning = true;
+      reasoningEl.style.display = 'block';
+      reasoningRenderer.push(msg.token);
+    } else if (msg.type === 'token') {
+      if (!hasContent) {
+        hasContent = true;
+        if (hasReasoning) reasoningTitleEl.textContent = '思考过程';
+      }
       buffer += msg.token;
-      // 流式期间直接显示原文 token（避免逐 token 全量 cleanMarkdown 的 O(n²) 开销），done 时统一清理
-      el.querySelector('.ds-body').textContent = buffer;
+      bodyRenderer.push(msg.token);
     } else if (msg.type === 'done') {
       isLoading = false;
       const isExplainLike = mode === 'A' || mode === 'C' || mode === 'D';
       const display = isExplainLike ? cleanMarkdown(buffer) : buffer;
       currentExplanation = display;
-      el.querySelector('.ds-body').textContent = display;
-      el.querySelector('.ds-body').classList.remove('ds-streaming');
+      reasoningRenderer.flush();
+      bodyRenderer.setFinal(display);
+      bodyEl.classList.remove('ds-streaming');
       el.querySelector('.ds-actions').style.display = 'flex';
       el.querySelector('.ds-model-tag').textContent = msg.model || '';
-      // 🆕 模式 B：翻译完成后显示"解释此句"按钮
+      // 🆕 模式 B：翻译完成后显示“解释此句”按钮
       updateExtraActions(mode);
       port.disconnect();
       currentStreamPort = null;
@@ -240,8 +298,11 @@ async function triggerWithStream({ text, mode, popupTitle }) {
     } else if (msg.type === 'error') {
       isLoading = false;
       currentExplanation = null;
-      el.querySelector('.ds-body').classList.remove('ds-streaming');
-      el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
+      reasoningRenderer.cancel();
+      bodyRenderer.cancel();
+      reasoningEl.style.display = 'none';
+      bodyEl.classList.remove('ds-streaming');
+      bodyEl.innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
       el.querySelector('.ds-actions').style.display = 'none';
       port.disconnect();
       currentStreamPort = null;
@@ -257,8 +318,9 @@ async function triggerWithStream({ text, mode, popupTitle }) {
     if (isLoading) {
       isLoading = false;
       if (!currentExplanation) {
-        el.querySelector('.ds-body').classList.remove('ds-streaming');
-        el.querySelector('.ds-body').textContent = '⚠️ 连接中断，请重试';
+        bodyRenderer.cancel();
+        bodyEl.classList.remove('ds-streaming');
+        bodyRenderer.setFinal('⚠️ 连接中断，请重试');
       }
       if (!el.matches(':hover')) scheduleHide();
     }
@@ -441,41 +503,59 @@ async function handleExplainThis(e) {
   }
   currentStreamPort = port;
 
-  el.querySelector('.ds-body').textContent = '';
-  el.querySelector('.ds-body').classList.add('ds-streaming');
+  const bodyEl = el.querySelector('.ds-body');
+  const reasoningEl = el.querySelector('.ds-reasoning');
+  const reasoningTitleEl = el.querySelector('.ds-reasoning-title');
+  const reasoningBodyEl = el.querySelector('.ds-reasoning-body');
+
+  bodyEl.classList.add('ds-streaming');
+  reasoningEl.style.display = 'none';
+  reasoningTitleEl.textContent = '思考中…';
+  const bodyRenderer = createStreamingTextRenderer(bodyEl);
+  const reasoningRenderer = createStreamingTextRenderer(reasoningBodyEl);
   let buffer = '';
+  let hasReasoning = false;
 
   const cleanup = () => {
     isLoading = false;
-    el.querySelector('.ds-body').classList.remove('ds-streaming');
+    bodyEl.classList.remove('ds-streaming');
     btn.remove();
     currentStreamPort = null;
     try { port.disconnect(); } catch {}
   };
 
   port.onMessage.addListener((msg) => {
-    if (msg.type === 'token') {
+    if (msg.type === 'reasoning-token') {
+      hasReasoning = true;
+      reasoningEl.style.display = 'block';
+      reasoningRenderer.push(msg.token);
+    } else if (msg.type === 'token') {
+      if (hasReasoning && !buffer) reasoningTitleEl.textContent = '思考过程';
       buffer += msg.token;
-      // 流式期间直接显示，done 时统一 cleanMarkdown（避免逐 token 全量清理）
-      el.querySelector('.ds-body').textContent = buffer;
+      bodyRenderer.push(msg.token);
     } else if (msg.type === 'done') {
       currentExplanation = cleanMarkdown(buffer);
-      el.querySelector('.ds-body').textContent = currentExplanation;
+      reasoningRenderer.flush();
+      bodyRenderer.setFinal(currentExplanation);
       cleanup();
       // 流结束后若鼠标已不在弹窗上，恢复移出自动隐藏
       if (!el.matches(':hover')) scheduleHide();
     } else if (msg.type === 'error') {
-      el.querySelector('.ds-body').innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
+      reasoningRenderer.cancel();
+      bodyRenderer.cancel();
+      reasoningEl.style.display = 'none';
+      bodyEl.innerHTML = `<span class="ds-error">${escapeHtml(msg.error)}</span>`;
       cleanup();
     }
   });
 
   port.onDisconnect.addListener(() => {
-    // 旧流被新流顶替时，其回调不得干扰新流状态
+    // 旧流被新流顶替时（abortStream），其回调不得干扰新流状态
     if (currentStreamPort !== port) return;
     if (isLoading) {
-      if (!el.querySelector('.ds-body').textContent) {
-        el.querySelector('.ds-body').textContent = '⚠️ 连接中断';
+      if (!buffer.trim()) {
+        bodyRenderer.cancel();
+        bodyEl.textContent = '⚠️ 连接中断';
       }
       cleanup();
     }

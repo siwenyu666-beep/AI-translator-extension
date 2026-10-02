@@ -265,3 +265,29 @@
 @keyframes ds-dot-spin {
   to { transform: rotate(360deg); }
 }
+
+/* ── 思考过程（真流式） ── */
+.ds-reasoning {
+  margin: 8px 16px 0;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.ds-reasoning-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.ds-reasoning-body {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.6;
+  max-height: 18vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

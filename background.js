@@ -101,7 +101,7 @@ chrome.runtime.onConnect.addListener((port) => {
     if (msg.type === 'STREAM_REQUEST') {
       handleStreamRequest(port, msg);
     }
-    // 全文翻译批量流式请求
+    // 全文翻译批量流式请求（旧协议，保留兼容）
     if (msg.type === 'STREAM_BATCH') {
       handleStreamRequest(port, {
         promptType: msg.promptType || 'translate',
@@ -109,6 +109,10 @@ chrome.runtime.onConnect.addListener((port) => {
         context: msg.context,
         batchId: msg.batchId
       });
+    }
+    // 全文翻译真正批量请求：单次请求多个相邻块，按 id 返回
+    if (msg.type === 'STREAM_TRANSLATE_BATCH') {
+      handleTranslateBatchRequest(port, msg);
     }
   });
 });
@@ -183,7 +187,9 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
 
   // 缓存检查（键包含思考开关，避免开关切换后命中旧缓存）
   const modeKey = mode || promptType;
-  const langKey = (mode && (mode === 'A' || mode === 'B')) ? (config.targetLanguage || 'zh') : config.language;
+  const langKey = ((mode && (mode === 'A' || mode === 'B')) || promptType === 'translate')
+    ? (config.targetLanguage || 'zh')
+    : config.language;
   const ctxFingerprint = context ? hashString(context.title + (context.before || '') + (context.after || '')) : 'noctx';
   const thinkingFlag = thinkingEnabled ? 't1' : 't0';
   const effortFlag = thinkingEnabled ? (reasoningEffort || 'default') : 'n';
@@ -211,9 +217,10 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
   port.onDisconnect.addListener(() => controller.abort());
 
   try {
-    let maxTokens = getMaxTokens(mode, promptType);
+    let maxTokens = getMaxTokens(mode, promptType, text);
     if (thinkingEnabled && provider === 'deepseek') {
-      maxTokens *= 3; // 思考模式的推理 token 计入输出上限，需放大防止回答被截断
+      // 思考模式的推理 token 计入输出上限；设置上限避免极端长文本成本失控
+      maxTokens = Math.min(65536, maxTokens * 3);
     }
     const body = {
       model: model,
@@ -241,7 +248,7 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
       ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
       : 'https://api.deepseek.com/chat/completions';
 
-    const res = await fetch(endpoint, {
+    const res = await fetchWithRetry(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -257,13 +264,44 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
       return;
     }
 
-    // SSE 流式解析
+    // SSE 流式解析：同一轮网络读取内的 token 合并发送，既不额外延迟，也减少 IPC
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let fullText = '';
+    let tokenChunk = '';
+    let reasoningChunk = '';
 
-    while (true) {
+    const flushChunks = () => {
+      if (reasoningChunk) {
+        port.postMessage({ type: 'reasoning-token', token: reasoningChunk, batchId });
+        reasoningChunk = '';
+      }
+      if (tokenChunk) {
+        port.postMessage({ type: 'token', token: tokenChunk, batchId });
+        tokenChunk = '';
+      }
+    };
+
+    const parseDataLine = (line) => {
+      if (!line.startsWith('data:')) return false;
+      const data = line.slice(5).trim();
+      if (!data) return false;
+      if (data === '[DONE]') return 'done';
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed?.choices?.[0]?.delta;
+        if (delta?.reasoning_content) reasoningChunk += delta.reasoning_content;
+        if (delta?.content) {
+          tokenChunk += delta.content;
+          fullText += delta.content;
+        }
+      } catch { /* skip malformed */ }
+      return false;
+    };
+
+    let streamDone = false;
+    while (!streamDone) {
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -272,46 +310,22 @@ async function handleStreamRequest(port, { promptType, text, context, batchId, m
       buffer = lines.pop() || '';
 
       for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') {
-          // 缓存完整结果
-          if (fullText.length > 10) {
-            CACHE.set(cacheKey, fullText);
-            if (CACHE.size > CACHE_MAX) {
-              const first = CACHE.keys().next().value;
-              CACHE.delete(first);
-            }
-          }
-          port.postMessage({ type: 'done', model: model.replace('deepseek-', ''), batchId });
-          return;
+        if (parseDataLine(line) === 'done') {
+          streamDone = true;
+          break;
         }
-        try {
-          const parsed = JSON.parse(data);
-          const token = parsed?.choices?.[0]?.delta?.content;
-          if (token) {
-            fullText += token;
-            port.postMessage({ type: 'token', token, batchId });
-          }
-        } catch { /* skip malformed */ }
       }
     }
 
-    // 流结束但没收到 [DONE]：flush 解码器残余字节
-    buffer += decoder.decode();
-    for (const line of buffer.split('\n')) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice(6).trim();
-      if (data === '[DONE]') break;
-      try {
-        const parsed = JSON.parse(data);
-        const token = parsed?.choices?.[0]?.delta?.content;
-        if (token) {
-          fullText += token;
-          port.postMessage({ type: 'token', token, batchId });
-        }
-      } catch { /* skip malformed */ }
+    // 没收到 [DONE] 时也要处理解码器残余
+    if (!streamDone) {
+      buffer += decoder.decode();
+      for (const line of buffer.split('\n')) {
+        if (parseDataLine(line) === 'done') break;
+      }
     }
+
+    flushChunks();
 
     // 缓存完整结果
     if (fullText.length > 10) {
@@ -457,13 +471,18 @@ ${text}
 - 不要使用 Markdown 格式`;
 }
 
-// 🆕 按模式返回 max_tokens
-function getMaxTokens(mode, promptType) {
-  if (mode === 'A') return 800;   // 翻译+解释
-  if (mode === 'B') return 2048;  // 纯翻译
-  if (mode === 'C') return 400;   // 拓展解释
-  if (mode === 'D') return 600;   // 语境解读
-  return promptType === 'translate' ? 2048 : 400;
+// 按模式和输入长度动态计算 max_tokens，避免长段落被固定 2048 截断
+function dynamicTranslateMaxTokens(text) {
+  const len = String(text || '').length;
+  return Math.min(32768, Math.max(2048, Math.ceil(len * 1.5)));
+}
+
+function getMaxTokens(mode, promptType, text) {
+  if (mode === 'A') return Math.min(2048, Math.max(800, Math.ceil(String(text || '').length * 1.5)));
+  if (mode === 'B') return dynamicTranslateMaxTokens(text);
+  if (mode === 'C') return 400;
+  if (mode === 'D') return 600;
+  return promptType === 'translate' ? dynamicTranslateMaxTokens(text) : 400;
 }
 
 // ═══════════════════════════════════════════
@@ -559,6 +578,34 @@ async function parseApiError(res) {
   }
 }
 
+// 429/5xx/网络错误统一退避重试；AbortError 直接抛出，不重试
+async function fetchWithRetry(url, options = {}, maxRetries = 3) {
+  let lastError = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if ((res.status === 429 || res.status >= 500) && attempt < maxRetries) {
+        const retryAfter = Number(res.headers?.get?.('Retry-After') || 0);
+        const waitMs = retryAfter > 0
+          ? retryAfter * 1000
+          : Math.min(8000, 500 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250);
+        await sleep(waitMs);
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (err?.name === 'AbortError') throw err;
+      lastError = err;
+      if (attempt < maxRetries) {
+        await sleep(Math.min(8000, 500 * Math.pow(2, attempt)) + Math.floor(Math.random() * 250));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error('请求失败');
+}
+
 // ═══════════════════════════════════════════
 // 模型可用性检测
 // ═══════════════════════════════════════════
@@ -582,7 +629,7 @@ async function validateModel(inputModel) {
     : 'https://api.deepseek.com/models';
 
   try {
-    const res = await fetch(endpoint, {
+    const res = await fetchWithRetry(endpoint, {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${apiKey}`
@@ -614,6 +661,216 @@ async function validateModel(inputModel) {
     };
   } catch (err) {
     return { ok: false, error: `模型检测失败：${err.message}` };
+  }
+}
+
+// ═══════════════════════════════════════════
+// 全文翻译批量请求：用 id 标记保证结果不会因模型输出顺序/合并而错位
+// ═══════════════════════════════════════════
+
+function sanitizeBatchId(id) {
+  return String(id || '').replace(/[^A-Za-z0-9_]/g, '_') || 'item';
+}
+
+function buildBatchTranslatePrompt(items, targetLanguage, context) {
+  const langNames = { zh: '中文', en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', de: 'Deutsch', es: 'Español', pt: 'Português', ru: 'Русский', ar: 'العربية' };
+  const targetName = langNames[targetLanguage] || targetLanguage;
+  const blocks = items.map(item => {
+    const id = sanitizeBatchId(item.id);
+    return `<<<DS_ITEM_${id}>>>\n${item.text}\n<<<DS_END_${id}>>>`;
+  }).join('\n\n');
+  const contextBlock = context?.title ? `网页标题：${context.title}\n\n` : '';
+
+  return `你是一个专业的翻译引擎，请将下面每个标记块中的文本翻译为${targetName}。
+${contextBlock}${blocks}
+
+输出要求：
+- 只输出翻译后的标记块，保持 <<<DS_ITEM_xxx>>> 和 <<<DS_END_xxx>>> 标记原样
+- 标记中的 xxx 是 id，必须与输入完全一致
+- 不要合并、遗漏、新增任何标记块
+- 不要输出解释、说明、Markdown 代码块
+- 保留原文段落结构和换行`;
+}
+
+function parseBatchTranslation(raw, expectedIds) {
+  const text = String(raw || '');
+  const map = new Map();
+  const re = /<<<DS_ITEM_([A-Za-z0-9_]+)>>>([\s\S]*?)<<<DS_END_\1>>>/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    map.set(match[1], match[2].trim());
+  }
+
+  const items = expectedIds.map(id => ({
+    id: String(id),
+    text: map.get(sanitizeBatchId(id)) || ''
+  }));
+
+  if (items.some(item => !item.text)) return null;
+  return items;
+}
+
+async function handleTranslateBatchRequest(port, { items, context, batchId }) {
+  const list = Array.isArray(items)
+    ? items.filter(item => item && item.id && String(item.text || '').trim())
+    : [];
+
+  if (list.length === 0) {
+    port.postMessage({ type: 'error', error: '没有可翻译的内容', batchId });
+    port.disconnect();
+    return;
+  }
+
+  const config = await getConfig();
+  if (config.enabled === false) {
+    port.postMessage({ type: 'error', error: '扩展已禁用', batchId });
+    port.disconnect();
+    return;
+  }
+
+  const model = config.translateModel || 'deepseek-flash';
+  const provider = getProvider(model);
+  const apiKey = provider === 'qwen' ? config.qwenApiKey : config.apiKey;
+  if (!apiKey) {
+    const name = provider === 'qwen' ? '千问' : 'DeepSeek';
+    port.postMessage({ type: 'error', error: `请先设置${name} API Key`, batchId });
+    port.disconnect();
+    return;
+  }
+
+  const targetLanguage = config.targetLanguage || 'zh';
+  const thinkingEnabled = config.translateThinkingEnabled || false;
+  const reasoningEffort = config.translateReasoningEffort || 'high';
+  const systemPrompt = '你是一个专业的翻译引擎。只输出规定格式的译文，不要任何解释、说明。';
+  const prompt = buildBatchTranslatePrompt(list, targetLanguage, context);
+
+  const inputChars = list.reduce((sum, item) => sum + String(item.text).length, 0) + list.length * 40;
+  let maxTokens = Math.min(32768, Math.max(2048, Math.ceil(inputChars * 1.5)));
+  if (thinkingEnabled && provider === 'deepseek') {
+    maxTokens = Math.min(65536, maxTokens * 3);
+  }
+
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ],
+    temperature: 0.1,
+    max_tokens: maxTokens,
+    stream: true
+  };
+
+  if (provider === 'deepseek') {
+    body.thinking = { type: thinkingEnabled ? 'enabled' : 'disabled' };
+    if (thinkingEnabled) {
+      body.reasoning_effort = reasoningEffort;
+      delete body.temperature;
+    }
+  }
+
+  const endpoint = provider === 'qwen'
+    ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions'
+    : 'https://api.deepseek.com/chat/completions';
+
+  const controller = new AbortController();
+  port.onDisconnect.addListener(() => controller.abort());
+
+  try {
+    const res = await fetchWithRetry(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const error = await parseApiError(res);
+      port.postMessage({
+        type: 'error',
+        error,
+        batchId,
+        retryable: res.status === 429 || res.status >= 500,
+        fallback: true
+      });
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let output = '';
+
+    const consumeLine = (line) => {
+      if (!line.startsWith('data:')) return false;
+      const data = line.slice(5).trim();
+      if (!data) return false;
+      if (data === '[DONE]') return true;
+      try {
+        const parsed = JSON.parse(data);
+        const token = parsed?.choices?.[0]?.delta?.content;
+        if (token) output += token;
+      } catch { /* skip malformed */ }
+      return false;
+    };
+
+    let streamDone = false;
+    while (!streamDone) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (consumeLine(line)) {
+          streamDone = true;
+          break;
+        }
+      }
+    }
+
+    if (!streamDone) {
+      buffer += decoder.decode();
+      for (const line of buffer.split('\n')) {
+        if (consumeLine(line)) break;
+      }
+    }
+
+    const parsedItems = parseBatchTranslation(output, list.map(item => item.id));
+    if (!parsedItems) {
+      port.postMessage({
+        type: 'error',
+        error: '批量译文解析失败，将回退为逐块翻译',
+        batchId,
+        retryable: true,
+        fallback: true
+      });
+      return;
+    }
+
+    port.postMessage({
+      type: 'done',
+      model: model.replace('deepseek-', ''),
+      batchId,
+      items: parsedItems
+    });
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      port.postMessage({
+        type: 'error',
+        error: err.message || '批量翻译失败',
+        batchId,
+        retryable: true,
+        fallback: true
+      });
+    }
+  } finally {
+    port.disconnect();
   }
 }
 
