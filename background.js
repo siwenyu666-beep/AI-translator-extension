@@ -63,6 +63,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     injectFullPageTranslator(sender);
     return false;
   }
+  // 模型可用性检测：调用各供应商的 /models 接口，避免无效模型被保存到列表
+  if (message.type === 'VALIDATE_MODEL') {
+    validateModel(message.model)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ ok: false, error: err.message || '模型检测失败' }));
+    return true; // 异步响应
+  }
 });
 
 // ═══════════════════════════════════════════
@@ -549,6 +556,64 @@ async function parseApiError(res) {
     return `API 错误 (${res.status}): ${body.slice(0, 100)}`;
   } catch {
     return `API 错误 (${res.status})`;
+  }
+}
+
+// ═══════════════════════════════════════════
+// 模型可用性检测
+// ═══════════════════════════════════════════
+
+async function validateModel(inputModel) {
+  const model = normalizeModelName(inputModel);
+  if (!model) {
+    return { ok: false, error: '模型调用名不能为空' };
+  }
+
+  const config = await getConfig();
+  const provider = getProvider(model);
+  const apiKey = provider === 'qwen' ? config.qwenApiKey : config.apiKey;
+  if (!apiKey) {
+    const providerName = provider === 'qwen' ? '千问' : 'DeepSeek';
+    return { ok: false, error: `请先设置${providerName} API Key` };
+  }
+
+  const endpoint = provider === 'qwen'
+    ? 'https://dashscope.aliyuncs.com/compatible-mode/v1/models'
+    : 'https://api.deepseek.com/models';
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`
+      }
+    });
+
+    if (!res.ok) {
+      return { ok: false, error: await parseApiError(res) };
+    }
+
+    const data = await res.json();
+    const models = Array.isArray(data?.data) ? data.data : [];
+    const found = models.find(item => {
+      const id = item?.id || item?.model;
+      return id && String(id) === model;
+    });
+
+    if (!found) {
+      return { ok: false, error: `未找到可调用的模型：${model}` };
+    }
+
+    return {
+      ok: true,
+      provider: provider,
+      model: {
+        id: found.id || model,
+        name: found.name || found.id || model
+      }
+    };
+  } catch (err) {
+    return { ok: false, error: `模型检测失败：${err.message}` };
   }
 }
 

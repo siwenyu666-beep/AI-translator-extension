@@ -1,12 +1,18 @@
 // ========== DeepSeek 智能解释 & 翻译 — Popup ==========
 // 双标签布局：解释 / 翻译各自独立模型配置 + 通用设置
+// 模型列表：所有模型（含预设）均可修改、保存、删除；保存前调用 API 校验可用性
 
 // ── 模型常量与旧名称兼容 ──
-const BUILTIN_MODELS = ['deepseek-flash', 'deepseek-v4-pro', 'qwen3.7-flash'];
 const DEFAULT_MODEL = 'deepseek-flash';
+const DEFAULT_MODEL_LIST = ['deepseek-flash', 'deepseek-v4-pro', 'qwen3.7-flash'];
 const LEGACY_MODEL_ALIASES = {
   'deepseek-v4-flash': 'deepseek-flash',
   'deepseek-v4-flash-vision-exp': 'deepseek-flash'
+};
+const MODEL_DISPLAY_NAMES = {
+  'deepseek-flash': 'DeepSeek-V4.1-Flash',
+  'deepseek-v4-pro': 'DeepSeek-V4-Pro',
+  'qwen3.7-flash': 'Qwen3.7-Flash'
 };
 
 // ── DOM 引用 ──
@@ -17,8 +23,10 @@ const $tabPanels = document.querySelectorAll('.tab-panel');
 // 解释标签
 const $explainModel = document.getElementById('explain-model');
 const $explainCustomInput = document.getElementById('explain-custom-model');
+const $explainCustomNew = document.getElementById('explain-custom-new');
 const $explainCustomAdd = document.getElementById('explain-custom-add');
 const $explainCustomDelete = document.getElementById('explain-custom-delete');
+const $explainModelMsg = document.getElementById('explain-model-msg');
 const $explainThinking = document.getElementById('explain-thinking');
 const $explainEffort = document.getElementById('explain-effort');
 const $explainEffortSection = document.getElementById('explain-effort-section');
@@ -27,8 +35,10 @@ const $explainLanguage = document.getElementById('explain-language');
 // 翻译标签
 const $translateModel = document.getElementById('translate-model');
 const $translateCustomInput = document.getElementById('translate-custom-model');
+const $translateCustomNew = document.getElementById('translate-custom-new');
 const $translateCustomAdd = document.getElementById('translate-custom-add');
 const $translateCustomDelete = document.getElementById('translate-custom-delete');
+const $translateModelMsg = document.getElementById('translate-model-msg');
 const $translateThinking = document.getElementById('translate-thinking');
 const $translateEffort = document.getElementById('translate-effort');
 const $translateEffortSection = document.getElementById('translate-effort-section');
@@ -43,8 +53,33 @@ const $triggerMode = document.getElementById('trigger-mode');
 const $saveBtn = document.getElementById('save-btn');
 const $status = document.getElementById('status');
 
-// 全局自定义模型列表（解释/翻译共用，避免重复维护）
-let customModels = [];
+// 两个标签共享同一份模型列表
+let modelList = [];
+
+const tabs = [
+  {
+    key: 'explainModel',
+    select: $explainModel,
+    input: $explainCustomInput,
+    newBtn: $explainCustomNew,
+    addBtn: $explainCustomAdd,
+    deleteBtn: $explainCustomDelete,
+    msg: $explainModelMsg,
+    thinking: $explainThinking,
+    effortSection: $explainEffortSection
+  },
+  {
+    key: 'translateModel',
+    select: $translateModel,
+    input: $translateCustomInput,
+    newBtn: $translateCustomNew,
+    addBtn: $translateCustomAdd,
+    deleteBtn: $translateCustomDelete,
+    msg: $translateModelMsg,
+    thinking: $translateThinking,
+    effortSection: $translateEffortSection
+  }
+];
 
 // ═══════════════════════════════════════════
 // 模型名称工具
@@ -55,55 +90,102 @@ function normalizeModelName(model) {
   return LEGACY_MODEL_ALIASES[name] || name;
 }
 
-function normalizeCustomModels(models) {
+function normalizeModelList(list) {
   const out = [];
-  (Array.isArray(models) ? models : []).forEach(item => {
+  (Array.isArray(list) ? list : []).forEach(item => {
     const name = normalizeModelName(item);
-    if (!name || BUILTIN_MODELS.includes(name) || out.includes(name)) return;
+    if (!name || out.includes(name)) return;
     out.push(name);
   });
   return out;
 }
 
-function getModelKey($model) {
-  return $model === $explainModel ? 'explainModel' : 'translateModel';
+function modelDisplayName(model) {
+  const name = MODEL_DISPLAY_NAMES[model];
+  return name ? `${name}（${model}）` : model;
 }
 
-function updateCustomDeleteState($model, $deleteBtn) {
-  $deleteBtn.disabled = !customModels.includes($model.value);
+function clearModelMessage($msg) {
+  clearTimeout($msg._hideTimer);
+  $msg.textContent = '';
+  $msg.className = 'model-msg';
 }
 
-function renderCustomModelOptions($model) {
-  const current = $model.value;
-
-  $model.querySelectorAll('optgroup[data-custom-models]').forEach(el => el.remove());
-
-  if (customModels.length > 0) {
-    const group = document.createElement('optgroup');
-    group.label = '自定义';
-    group.dataset.customModels = 'true';
-    customModels.forEach(model => {
-      const option = document.createElement('option');
-      option.value = model;
-      option.textContent = model;
-      group.appendChild(option);
-    });
-    $model.appendChild(group);
+function showModelMessage($msg, text, type = 'error', autoHide = 5000) {
+  clearTimeout($msg._hideTimer);
+  $msg.textContent = text;
+  $msg.className = 'model-msg ' + type;
+  if (autoHide > 0) {
+    $msg._hideTimer = setTimeout(() => {
+      $msg.textContent = '';
+      $msg.className = 'model-msg';
+    }, autoHide);
   }
-
-  // 重建选项后恢复原选择
-  if (current) $model.value = current;
 }
 
-function refreshCustomModelOptions() {
-  renderCustomModelOptions($explainModel);
-  renderCustomModelOptions($translateModel);
-  updateCustomDeleteState($explainModel, $explainCustomDelete);
-  updateCustomDeleteState($translateModel, $translateCustomDelete);
+function syncThinkingForTab(tab) {
+  const isQwen = (tab.select.value || '').startsWith('qwen');
+  if (isQwen) {
+    tab.thinking.checked = false;
+    tab.effortSection.style.display = 'none';
+    return;
+  }
+  tab.effortSection.style.display = tab.thinking.checked ? '' : 'none';
 }
 
-async function persistModelSelection($model, model) {
-  await chrome.storage.local.set({ [getModelKey($model)]: model });
+// ═══════════════════════════════════════════
+// 模型列表渲染 / 同步
+// ═══════════════════════════════════════════
+
+function renderModelOptions($select) {
+  const current = $select.value;
+  $select.innerHTML = '';
+
+  modelList.forEach(model => {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = modelDisplayName(model);
+    $select.appendChild(option);
+  });
+
+  if (current && modelList.includes(current)) {
+    $select.value = current;
+  } else {
+    $select.selectedIndex = -1;
+  }
+}
+
+function renderAllModelOptions() {
+  tabs.forEach(tab => renderModelOptions(tab.select));
+}
+
+function setTabSelection(tab, modelId) {
+  if (modelId && modelList.includes(modelId)) {
+    tab.select.value = modelId;
+    tab.input.value = modelId;
+    tab.deleteBtn.disabled = false;
+  } else {
+    tab.select.selectedIndex = -1;
+    tab.input.value = modelId || '';
+    tab.deleteBtn.disabled = true;
+  }
+  syncThinkingForTab(tab);
+}
+
+function syncInputFromSelect(tab) {
+  const model = tab.select.value || '';
+  tab.input.value = model;
+  tab.deleteBtn.disabled = !model;
+  clearModelMessage(tab.msg);
+  syncThinkingForTab(tab);
+}
+
+function startNewModel(tab) {
+  tab.select.selectedIndex = -1;
+  tab.input.value = '';
+  tab.deleteBtn.disabled = true;
+  clearModelMessage(tab.msg);
+  tab.input.focus();
 }
 
 // ═══════════════════════════════════════════
@@ -125,133 +207,143 @@ $tabBtns.forEach(btn => {
 // 深度思考开关 → 联动强度选择显隐
 // ═══════════════════════════════════════════
 
-function syncThinkingSection($model, $thinking, $effortSection) {
-  const isQwen = $model.value.startsWith('qwen');
-  if (isQwen) {
-    $thinking.checked = false;
-    $effortSection.style.display = 'none';
-    return;
-  }
-  $effortSection.style.display = $thinking.checked ? '' : 'none';
-}
-
 $explainThinking.addEventListener('change', () => {
-  syncThinkingSection($explainModel, $explainThinking, $explainEffortSection);
+  syncThinkingForTab(tabs[0]);
 });
 $translateThinking.addEventListener('change', () => {
-  syncThinkingSection($translateModel, $translateThinking, $translateEffortSection);
-});
-
-// ── 模型切换 → 千问自动隐藏思考选项；自定义模型同步删除按钮状态 ──
-$explainModel.addEventListener('change', () => {
-  syncThinkingSection($explainModel, $explainThinking, $explainEffortSection);
-  updateCustomDeleteState($explainModel, $explainCustomDelete);
-});
-$translateModel.addEventListener('change', () => {
-  syncThinkingSection($translateModel, $translateThinking, $translateEffortSection);
-  updateCustomDeleteState($translateModel, $translateCustomDelete);
+  syncThinkingForTab(tabs[1]);
 });
 
 // ═══════════════════════════════════════════
-// 自定义模型：保存 / 删除
+// 自定义 / 列表模型：保存、修改、删除、新增
 // ═══════════════════════════════════════════
 
-async function addCustomModel($input, $model, $deleteBtn) {
-  const raw = $input.value.trim();
+async function saveCurrentModel(tab) {
+  const raw = tab.input.value.trim();
   if (!raw) {
-    showStatus('⚠️ 请输入模型调用名', 'error');
+    showModelMessage(tab.msg, '请输入模型调用名', 'error');
+    return;
+  }
+  if (/\s/.test(raw)) {
+    showModelMessage(tab.msg, '模型调用名不能包含空格', 'error');
     return;
   }
 
-  const model = normalizeModelName(raw);
-  if (/\s/.test(model)) {
-    showStatus('⚠️ 模型调用名不能包含空格', 'error');
+  const requested = normalizeModelName(raw);
+  const current = tab.select.value || '';
+
+  // 按用户要求：保存前先调用后台 API 测试模型是否存在/可调用
+  tab.addBtn.disabled = true;
+  tab.newBtn.disabled = true;
+  showModelMessage(tab.msg, '正在检测模型可用性…', 'info', 0);
+
+  let result;
+  try {
+    result = await chrome.runtime.sendMessage({ type: 'VALIDATE_MODEL', model: requested });
+  } catch (err) {
+    result = { ok: false, error: err.message || '模型检测失败' };
+  } finally {
+    tab.addBtn.disabled = false;
+    tab.newBtn.disabled = false;
+  }
+
+  if (!result || !result.ok) {
+    showModelMessage(tab.msg, result?.error || '模型不可用，请检查调用名或 API Key', 'error', 8000);
     return;
   }
 
-  if (BUILTIN_MODELS.includes(model)) {
-    $model.value = model;
-    $input.value = '';
-    await persistModelSelection($model, model);
-    syncThinkingSection(
-      $model,
-      $model === $explainModel ? $explainThinking : $translateThinking,
-      $model === $explainModel ? $explainEffortSection : $translateEffortSection
-    );
-    updateCustomDeleteState($model, $deleteBtn);
-    showStatus(`✅ 已使用内置模型：${model}`, 'success');
-    return;
-  }
+  const targetId = normalizeModelName(result.model?.id || requested);
+  const targetInList = modelList.includes(targetId);
+  const currentInList = current && modelList.includes(current);
 
-  if (!customModels.includes(model)) customModels.push(model);
-  refreshCustomModelOptions();
-  $model.value = model;
-  $input.value = '';
-
-  const updates = { customModels, [getModelKey($model)]: model };
-  await chrome.storage.local.set(updates);
-
-  // 手动触发 change，让思考强度显隐跟随自定义模型供应商前缀
-  $model.dispatchEvent(new Event('change'));
-  showStatus(`✅ 已保存并使用：${model}`, 'success');
-}
-
-async function removeCustomModel($model, $deleteBtn) {
-  const model = $model.value;
-  if (!customModels.includes(model)) {
-    showStatus('⚠️ 当前选择的是内置模型，不能删除', 'error');
-    return;
-  }
-
-  customModels = customModels.filter(item => item !== model);
-
-  const updates = { customModels };
-  [$explainModel, $translateModel].forEach($select => {
-    if ($select.value === model) {
-      $select.value = DEFAULT_MODEL;
-      updates[getModelKey($select)] = DEFAULT_MODEL;
+  // 新增时如果输入的是列表已有模型，直接选择，不重复添加
+  if (targetInList && targetId !== current) {
+    if (!current) {
+      renderAllModelOptions();
+      setTabSelection(tab, targetId);
+      await chrome.storage.local.set({ modelList: modelList.slice(), [tab.key]: targetId });
+      showModelMessage(tab.msg, `✅ 模型可用，已选择：${targetId}`, 'success', 3000);
+      return;
     }
+    showModelMessage(tab.msg, `模型列表中已存在：${targetId}，请直接从列表选择`, 'error', 8000);
+    return;
+  }
+
+  // 修改当前选中模型，或新增模型
+  if (currentInList) {
+    const index = modelList.indexOf(current);
+    modelList[index] = targetId;
+  } else if (!targetInList) {
+    modelList.push(targetId);
+  }
+
+  const updates = { modelList: modelList.slice() };
+  const desiredSelections = new Map();
+
+  tabs.forEach(item => {
+    let desired = item.select.value || '';
+    if (desired && desired === current) {
+      // 同一个模型在另一个标签里也被使用时，同步改成修改后的名字
+      desired = targetId;
+    } else if (!desired && item === tab) {
+      // 新增模式下保存，当前标签自动选中新模型
+      desired = targetId;
+    }
+    desiredSelections.set(item, desired);
+    updates[item.key] = desired || '';
   });
 
-  refreshCustomModelOptions();
-  if ($model === $explainModel) {
-    syncThinkingSection($explainModel, $explainThinking, $explainEffortSection);
-  } else {
-    syncThinkingSection($translateModel, $translateThinking, $translateEffortSection);
-  }
-
+  renderAllModelOptions();
+  tabs.forEach(item => setTabSelection(item, desiredSelections.get(item) || ''));
   await chrome.storage.local.set(updates);
-  showStatus(`✅ 已删除自定义模型：${model}`, 'success');
+
+  const action = currentInList ? '修改' : '新增';
+  showModelMessage(tab.msg, `✅ 模型可用，已保存${action}：${targetId}`, 'success', 3000);
 }
 
-$explainCustomAdd.addEventListener('click', () => {
-  addCustomModel($explainCustomInput, $explainModel, $explainCustomDelete);
-});
-$translateCustomAdd.addEventListener('click', () => {
-  addCustomModel($translateCustomInput, $translateModel, $translateCustomDelete);
-});
-$explainCustomDelete.addEventListener('click', () => {
-  removeCustomModel($explainModel, $explainCustomDelete);
-});
-$translateCustomDelete.addEventListener('click', () => {
-  removeCustomModel($translateModel, $translateCustomDelete);
-});
+async function deleteCurrentModel(tab) {
+  const model = tab.select.value;
+  if (!model || !modelList.includes(model)) {
+    showModelMessage(tab.msg, '当前没有可删除的列表模型', 'error');
+    return;
+  }
 
-[$explainCustomInput, $translateCustomInput].forEach($input => {
-  $input.addEventListener('keydown', event => {
+  const index = modelList.indexOf(model);
+  modelList = modelList.filter(item => item !== model);
+  const fallback = modelList[Math.min(index, modelList.length - 1)] || '';
+
+  const updates = { modelList: modelList.slice() };
+  const desiredSelections = new Map();
+
+  tabs.forEach(item => {
+    let desired = item.select.value || '';
+    if (desired === model || (desired && !modelList.includes(desired))) {
+      desired = fallback;
+    }
+    desiredSelections.set(item, desired);
+    updates[item.key] = desired || '';
+  });
+
+  renderAllModelOptions();
+  tabs.forEach(item => setTabSelection(item, desiredSelections.get(item) || ''));
+  await chrome.storage.local.set(updates);
+
+  showModelMessage(tab.msg, `✅ 已删除模型：${model}`, 'success', 3000);
+}
+
+tabs.forEach(tab => {
+  tab.select.addEventListener('change', () => syncInputFromSelect(tab));
+
+  tab.newBtn.addEventListener('click', () => startNewModel(tab));
+  tab.addBtn.addEventListener('click', () => saveCurrentModel(tab));
+  tab.deleteBtn.addEventListener('click', () => deleteCurrentModel(tab));
+
+  tab.input.addEventListener('keydown', event => {
     if (event.key === 'Enter') {
       event.preventDefault();
-      ($input === $explainCustomInput ? $explainCustomAdd : $translateCustomAdd).click();
+      saveCurrentModel(tab);
     }
   });
-});
-
-// 点击删除按钮后兜底刷新状态（保持禁用状态与当前选择一致）
-$explainCustomDelete.addEventListener('mouseup', () => {
-  setTimeout(() => updateCustomDeleteState($explainModel, $explainCustomDelete), 0);
-});
-$translateCustomDelete.addEventListener('mouseup', () => {
-  setTimeout(() => updateCustomDeleteState($translateModel, $translateCustomDelete), 0);
 });
 
 // ═══════════════════════════════════════════
@@ -276,15 +368,14 @@ $translateCustomDelete.addEventListener('mouseup', () => {
     enabled: true,
     usePageContext: true,
     triggerMode: 'auto',
-    // 自定义模型列表
-    customModels: []
+    // null 表示没有保存过模型列表，需要按默认预设迁移
+    modelList: null
   };
 
   let config = await chrome.storage.local.get(defaults);
-
-  // ── 旧版迁移 ──
   let migrated = false;
 
+  // ── 旧版配置迁移 ──
   if (config.model !== undefined) {
     config.explainModel = config.model;
     config.translateModel = config.model;
@@ -305,51 +396,74 @@ $translateCustomDelete.addEventListener('mouseup', () => {
   }
 
   // 旧模型名兼容：deepseek-v4-flash → deepseek-flash
-  const normalizedExplain = normalizeModelName(config.explainModel);
-  const normalizedTranslate = normalizeModelName(config.translateModel);
-  if (normalizedExplain !== config.explainModel) {
-    config.explainModel = normalizedExplain;
-    migrated = true;
-  }
-  if (normalizedTranslate !== config.translateModel) {
-    config.translateModel = normalizedTranslate;
+  const originalExplain = config.explainModel;
+  const originalTranslate = config.translateModel;
+  config.explainModel = normalizeModelName(config.explainModel) || DEFAULT_MODEL;
+  config.translateModel = normalizeModelName(config.translateModel) || DEFAULT_MODEL;
+  if (config.explainModel !== originalExplain || config.translateModel !== originalTranslate) {
     migrated = true;
   }
 
-  const normalizedCustoms = normalizeCustomModels(config.customModels);
-  if (JSON.stringify(normalizedCustoms) !== JSON.stringify(config.customModels || [])) {
+  // 模型列表：优先使用新版 modelList；否则由内置预设 + 旧 customModels 迁移而来
+  const storedModelList = Array.isArray(config.modelList) ? config.modelList : null;
+  const normalizedStoredModelList = storedModelList ? normalizeModelList(storedModelList) : null;
+
+  if (storedModelList) {
+    modelList = normalizedStoredModelList;
+  } else {
+    modelList = normalizeModelList([
+      ...DEFAULT_MODEL_LIST,
+      ...(Array.isArray(config.customModels) ? config.customModels : [])
+    ]);
+    // 旧配置中正在使用的自定义模型也必须出现在列表里
+    [config.explainModel, config.translateModel].forEach(model => {
+      if (model && !modelList.includes(model)) modelList.push(model);
+    });
+  }
+
+  if (!storedModelList || JSON.stringify(normalizedStoredModelList) !== JSON.stringify(storedModelList)) {
     migrated = true;
   }
-  customModels = normalizedCustoms;
 
-  // 旧版本可能只保存了自定义模型名，没有自定义列表；自动补录，避免下拉框丢失选择
-  [config.explainModel, config.translateModel].forEach(model => {
-    if (model && !BUILTIN_MODELS.includes(model) && !customModels.includes(model)) {
-      customModels.push(model);
-      migrated = true;
-    }
-  });
+  // 当前选中模型如果不在列表中，则回退到列表第一个；列表为空时为空
+  const pickSelectedModel = preferred => {
+    const model = normalizeModelName(preferred);
+    if (model && modelList.includes(model)) return model;
+    return modelList[0] || '';
+  };
+  const pickedExplain = pickSelectedModel(config.explainModel);
+  const pickedTranslate = pickSelectedModel(config.translateModel);
+  if (pickedExplain !== config.explainModel || pickedTranslate !== config.translateModel) {
+    config.explainModel = pickedExplain;
+    config.translateModel = pickedTranslate;
+    migrated = true;
+  }
 
   if (migrated) {
-    await chrome.storage.local.set({ ...config, customModels });
-    await chrome.storage.local.remove(['model', 'thinkingEnabled', 'reasoningEffort']);
+    await chrome.storage.local.set({
+      ...config,
+      explainModel: config.explainModel,
+      translateModel: config.translateModel,
+      modelList: modelList.slice()
+    });
+  }
+  // 清理旧版 customModels 键
+  if (config.customModels !== undefined) {
+    await chrome.storage.local.remove('customModels');
   }
 
   // ── 填充 UI ──
-  refreshCustomModelOptions();
-  $explainModel.value = config.explainModel || DEFAULT_MODEL;
   $explainThinking.checked = config.explainThinkingEnabled === true;
   $explainEffort.value = config.explainReasoningEffort || 'high';
-  syncThinkingSection($explainModel, $explainThinking, $explainEffortSection);
   $explainLanguage.value = config.language || 'auto';
-  updateCustomDeleteState($explainModel, $explainCustomDelete);
 
-  $translateModel.value = config.translateModel || DEFAULT_MODEL;
   $translateThinking.checked = config.translateThinkingEnabled === true;
   $translateEffort.value = config.translateReasoningEffort || 'high';
-  syncThinkingSection($translateModel, $translateThinking, $translateEffortSection);
   $targetLanguage.value = config.targetLanguage || 'zh';
-  updateCustomDeleteState($translateModel, $translateCustomDelete);
+
+  renderAllModelOptions();
+  setTabSelection(tabs[0], config.explainModel);
+  setTabSelection(tabs[1], config.translateModel);
 
   $apiKey.value = config.apiKey || '';
   $qwenApiKey.value = config.qwenApiKey || '';
@@ -370,12 +484,12 @@ $saveBtn.addEventListener('click', async () => {
     apiKey: apiKey,
     qwenApiKey: qwenApiKey,
     // 解释标签
-    explainModel: normalizeModelName($explainModel.value),
+    explainModel: normalizeModelName($explainModel.value) || '',
     explainThinkingEnabled: $explainThinking.checked,
     explainReasoningEffort: $explainEffort.value,
     language: $explainLanguage.value,
     // 翻译标签
-    translateModel: normalizeModelName($translateModel.value),
+    translateModel: normalizeModelName($translateModel.value) || '',
     translateThinkingEnabled: $translateThinking.checked,
     translateReasoningEffort: $translateEffort.value,
     targetLanguage: $targetLanguage.value,
@@ -383,8 +497,8 @@ $saveBtn.addEventListener('click', async () => {
     enabled: $enabled.checked,
     usePageContext: $useContext.checked,
     triggerMode: $triggerMode.value,
-    // 自定义模型列表
-    customModels: customModels
+    // 模型列表
+    modelList: modelList.slice()
   };
 
   try {

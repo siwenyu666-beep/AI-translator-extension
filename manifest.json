@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "DeepSeek 智能解释 & 翻译",
-  "version": "3.4.0",
-  "description": "选中文本智能解释/翻译，全文覆盖翻译。解释与翻译独立模型配置，支持 deepseek-flash 与自定义模型调用名，全部流式输出。",
+  "version": "3.5.0",
+  "description": "选中文本智能解释/翻译，全文覆盖翻译。模型列表支持 deepseek-flash、自定义模型调用名，可在线检测、修改、删除，全部流式输出。",
   "permissions": ["storage", "downloads", "contextMenus", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": {

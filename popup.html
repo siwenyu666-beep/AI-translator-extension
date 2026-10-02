@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="container">
-  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.4.0</span></h1>
+  <h1 class="title">DeepSeek 智能解释 &amp; 翻译 <span class="version">v3.5.0</span></h1>
 
   <!-- ═══ 标签切换 ═══ -->
   <div class="tab-bar">
@@ -19,22 +19,18 @@
   <!-- ═══ 解释标签设置 ═══ -->
   <div class="tab-panel active" id="panel-explain">
     <div class="section">
-      <label class="label" for="explain-model">模型</label>
-      <select id="explain-model" class="select">
-        <optgroup label="DeepSeek">
-          <option value="deepseek-flash">DeepSeek-V4.1-Flash（推荐 · 快速准确）</option>
-          <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
-        </optgroup>
-        <optgroup label="千问">
-          <option value="qwen3.7-flash">Qwen3.7-Flash（高性价比）</option>
-        </optgroup>
-      </select>
+      <label class="label" for="explain-model">模型列表</label>
+      <select id="explain-model" class="select"></select>
+
+      <label class="label label-spaced" for="explain-custom-model">模型调用名</label>
       <div class="custom-model-row">
         <input type="text" id="explain-custom-model" class="input custom-model-input" placeholder="输入模型调用名，如 deepseek-flash" autocomplete="off">
+        <button type="button" id="explain-custom-new" class="mini-btn">新增</button>
         <button type="button" id="explain-custom-add" class="mini-btn">保存使用</button>
         <button type="button" id="explain-custom-delete" class="mini-btn danger" disabled>删除</button>
       </div>
-      <p class="hint">自定义模型会长期保存；点击“删除”可移除当前选中的自定义模型。以 qwen 开头走千问，其余走 DeepSeek。</p>
+      <div id="explain-model-msg" class="model-msg" role="status"></div>
+      <p class="hint">选择列表模型会同步到输入框；修改后点“保存使用”即更新当前模型。点“新增”可输入新调用名添加到列表。保存前会调用 API 检测模型是否可调用；以 qwen 开头走千问，其余走 DeepSeek。</p>
     </div>
 
     <div class="section">
@@ -66,22 +62,18 @@
   <!-- ═══ 翻译标签设置 ═══ -->
   <div class="tab-panel" id="panel-translate">
     <div class="section">
-      <label class="label" for="translate-model">模型</label>
-      <select id="translate-model" class="select">
-        <optgroup label="DeepSeek">
-          <option value="deepseek-flash">DeepSeek-V4.1-Flash（推荐 · 快速准确）</option>
-          <option value="deepseek-v4-pro">DeepSeek-V4-Pro（深度推理）</option>
-        </optgroup>
-        <optgroup label="千问">
-          <option value="qwen3.7-flash">Qwen3.7-Flash（高性价比）</option>
-        </optgroup>
-      </select>
+      <label class="label" for="translate-model">模型列表</label>
+      <select id="translate-model" class="select"></select>
+
+      <label class="label label-spaced" for="translate-custom-model">模型调用名</label>
       <div class="custom-model-row">
         <input type="text" id="translate-custom-model" class="input custom-model-input" placeholder="输入模型调用名，如 deepseek-flash" autocomplete="off">
+        <button type="button" id="translate-custom-new" class="mini-btn">新增</button>
         <button type="button" id="translate-custom-add" class="mini-btn">保存使用</button>
         <button type="button" id="translate-custom-delete" class="mini-btn danger" disabled>删除</button>
       </div>
-      <p class="hint">自定义模型会长期保存；点击“删除”可移除当前选中的自定义模型。以 qwen 开头走千问，其余走 DeepSeek。</p>
+      <div id="translate-model-msg" class="model-msg" role="status"></div>
+      <p class="hint">选择列表模型会同步到输入框；修改后点“保存使用”即更新当前模型。点“新增”可输入新调用名添加到列表。保存前会调用 API 检测模型是否可调用；以 qwen 开头走千问，其余走 DeepSeek。</p>
     </div>
 
     <div class="section">

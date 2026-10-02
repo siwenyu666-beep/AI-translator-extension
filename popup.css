@@ -86,6 +86,10 @@ body {
   margin-bottom: 4px;
 }
 
+.label-spaced {
+  margin-top: 8px;
+}
+
 .hint {
   font-size: 11px;
   color: #94a3b8;
@@ -210,7 +214,7 @@ body {
 /* ── 自定义模型 ── */
 .custom-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 6px;
   margin-top: 6px;
 }
@@ -253,4 +257,36 @@ body {
 .mini-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.model-msg {
+  display: none;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.model-msg.error {
+  display: block;
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.model-msg.success {
+  display: block;
+  color: #15803d;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.model-msg.info {
+  display: block;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border-color: #bfdbfe;
 }
